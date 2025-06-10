@@ -1,0 +1,53 @@
+name: "CI"
+
+env:
+  FOUNDRY_PROFILE: "ci"
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - "main"
+
+jobs:
+  ci:
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: "Check out the repo"
+        uses: "actions/checkout@v3"
+        with:
+          submodules: "recursive"
+
+      - name: "Install Foundry"
+        uses: "foundry-rs/foundry-toolchain@v1"
+
+      - name: "Install Pnpm"
+        uses: "pnpm/action-setup@v2"
+        with:
+          version: "8"
+
+      - name: "Install Node.js"
+        uses: "actions/setup-node@v3"
+        with:
+          cache: "pnpm"
+          node-version: "lts/*"
+
+      - name: "Install the Node.js dependencies"
+        run: "pnpm install"
+
+      - name: "Lint the contracts"
+        run: "pnpm lint"
+
+      - name: "Build the contracts and print their size"
+        run: "forge build --sizes"
+
+      - name: "Run the tests"
+        run: "forge test"
+
+      - name: "Add summary"
+        run: |
+          echo "## CI Results" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Lint: Passed" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Build: Passed" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Tests: Passed" >> $GITHUB_STEP_SUMMARY
