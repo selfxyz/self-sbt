@@ -8,7 +8,7 @@ token that proves verified identity status.
 ```bash
 # Clone and setup
 git clone <repository-url>
-cd self-v1-sbt-contract
+cd self-sbt
 forge install && pnpm install
 
 # Compile and test
