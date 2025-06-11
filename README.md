@@ -1,6 +1,7 @@
 # SelfPassportSBTV1
 
-Soulbound Token (SBT) contract implementing Self's identity verification system. Designed with the **one dapp ↔ one SBT** model where each dApp deploys their own SBT contract for isolated, privacy-preserving identity verification.
+Soulbound Token (SBT) contract implementing Self's identity verification system. Designed with the **one dapp ↔ one
+SBT** model where each dApp deploys their own SBT contract for isolated, privacy-preserving identity verification.
 
 ## Quick Start
 
@@ -21,10 +22,12 @@ forge script script/Deploy.s.sol --rpc-url $RPC_URL --private-key $PRIVATE_KEY -
 ## Privacy-First Architecture
 
 The **one dapp ↔ one SBT** model ensures:
+
 - **Isolated Identity Verification**: Each dApp has its own SBT contract with separate nullifier spaces
 - **No Cross-dApp Tracking**: Users can't be linked across different applications
 - **dApp-Specific Policies**: Each deployment can have custom validity periods and governance rules
-- **Granular Privacy Control**: Users prove identity to individual applications without revealing cross-platform activity
+- **Granular Privacy Control**: Users prove identity to individual applications without revealing cross-platform
+  activity
 
 ## Core Features
 
@@ -37,6 +40,7 @@ The **one dapp ↔ one SBT** model ensures:
 ## Owner Capabilities
 
 The contract owner (typically the dApp) can:
+
 - **Set Validity Period**: Customize token expiry duration for their use case
 - **Burn Tokens**: Remove user SBTs when necessary (abuse, violations, etc.)
 - **Transfer Ownership**: Change contract control as needed
@@ -128,9 +132,9 @@ async function getUserSBT(userAddress) {
   if (tokenId === 0) return null;
 
   const [isValid, expiry, validityPeriod] = await Promise.all([
-    contract.isTokenValid(tokenId), 
+    contract.isTokenValid(tokenId),
     contract.getTokenExpiry(tokenId),
-    contract.getValidityPeriod()
+    contract.getValidityPeriod(),
   ]);
 
   return { tokenId, isValid, expiry, validityPeriod };
