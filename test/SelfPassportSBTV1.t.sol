@@ -13,12 +13,14 @@ contract SelfPassportSBTV1Test is Test {
     uint256 internal constant SCOPE_VALUE = 12_345;
     uint64 internal constant INVALID_TOKEN_ID = 999;
     uint256 internal constant TEST_NULLIFIER = 54_321;
+    uint256 internal constant DEFAULT_VALIDITY_PERIOD = 180 days;
 
     // Test variables
     SelfPassportSBTV1 internal sbtContract;
     address internal identityHub;
     address internal user;
     address internal relayer;
+    address internal owner;
 
     uint256[] internal attestationIds;
 
@@ -27,23 +29,30 @@ contract SelfPassportSBTV1Test is Test {
         identityHub = makeAddr("identityHub");
         user = makeAddr("user");
         relayer = makeAddr("relayer");
+        owner = makeAddr("owner");
 
         // Setup attestation IDs
         attestationIds = new uint256[](2);
         attestationIds[0] = 1;
         attestationIds[1] = 2;
 
-        // Deploy contract
-        sbtContract = new SelfPassportSBTV1(identityHub, SCOPE_VALUE, attestationIds);
+        // Deploy contract with owner and validity period
+        sbtContract = new SelfPassportSBTV1(identityHub, SCOPE_VALUE, attestationIds, owner, DEFAULT_VALIDITY_PERIOD);
     }
 
     function test_SetUp() external view {
         assertEq(sbtContract.name(), "SelfPassportSBTV1");
         assertEq(sbtContract.symbol(), "SELFSBTV1");
-        assertEq(sbtContract.VALIDITY_PERIOD(), 180 days);
+        assertEq(sbtContract.getValidityPeriod(), DEFAULT_VALIDITY_PERIOD);
+        assertEq(sbtContract.owner(), owner);
 
         // Check ERC5192 supports interface
         assertTrue(sbtContract.supportsInterface(type(IERC5192).interfaceId));
+    }
+
+    function test_Constructor_InvalidValidityPeriod() external {
+        vm.expectRevert(SelfPassportSBTV1.InvalidValidityPeriod.selector);
+        new SelfPassportSBTV1(identityHub, SCOPE_VALUE, attestationIds, owner, 0);
     }
 
     function test_IsTokenValid() external {
@@ -58,7 +67,7 @@ contract SelfPassportSBTV1Test is Test {
         assertEq(sbtContract.isTokenValid(2), false);
 
         // Token is minted but expired
-        vm.warp(block.timestamp + sbtContract.VALIDITY_PERIOD() + 1);
+        vm.warp(block.timestamp + sbtContract.getValidityPeriod() + 1);
         assertEq(sbtContract.isTokenValid(1), false);
     }
 
@@ -169,6 +178,106 @@ contract SelfPassportSBTV1Test is Test {
         vm.prank(relayer);
         sbtContract.verifySelfProof(proof);
     }
+
+    /*//////////////////////////////////////////////////////////////
+                             OWNER TESTS
+    //////////////////////////////////////////////////////////////*/
+
+    function test_BurnSBT() external {
+        // First mint an SBT
+        ISelfVerificationRoot.DiscloseCircuitProof memory proof = _prepareForVerifySelfProof();
+        vm.prank(relayer);
+        sbtContract.verifySelfProof(proof);
+
+        // Verify token exists
+        assertEq(sbtContract.ownerOf(1), user);
+        assertEq(sbtContract.getTokenIdByAddress(user), 1);
+
+        // Burn the token as owner
+        vm.expectEmit(true, true, true, true);
+        emit SelfPassportSBTV1.SBTBurned(1, user);
+
+        vm.prank(owner);
+        sbtContract.burnSBT(1);
+
+        // Verify token is burned
+        vm.expectRevert();
+        sbtContract.ownerOf(1);
+
+        assertEq(sbtContract.getTokenIdByAddress(user), 0);
+    }
+
+    function test_BurnSBT_NonOwner_Reverts() external {
+        // First mint an SBT
+        ISelfVerificationRoot.DiscloseCircuitProof memory proof = _prepareForVerifySelfProof();
+        vm.prank(relayer);
+        sbtContract.verifySelfProof(proof);
+
+        // Try to burn as non-owner
+        vm.expectRevert();
+        vm.prank(user);
+        sbtContract.burnSBT(1);
+    }
+
+    function test_BurnSBT_NonExistentToken_Reverts() external {
+        vm.expectRevert("Token does not exist");
+        vm.prank(owner);
+        sbtContract.burnSBT(999);
+    }
+
+    function test_SetValidityPeriod() external {
+        uint256 newPeriod = 365 days;
+
+        vm.expectEmit(true, true, true, true);
+        emit SelfPassportSBTV1.ValidityPeriodUpdated(DEFAULT_VALIDITY_PERIOD, newPeriod);
+
+        vm.prank(owner);
+        sbtContract.setValidityPeriod(newPeriod);
+
+        assertEq(sbtContract.getValidityPeriod(), newPeriod);
+    }
+
+    function test_SetValidityPeriod_NonOwner_Reverts() external {
+        vm.expectRevert();
+        vm.prank(user);
+        sbtContract.setValidityPeriod(365 days);
+    }
+
+    function test_SetValidityPeriod_Zero_Reverts() external {
+        vm.expectRevert(SelfPassportSBTV1.InvalidValidityPeriod.selector);
+        vm.prank(owner);
+        sbtContract.setValidityPeriod(0);
+    }
+
+    function test_SetValidityPeriod_AffectsNewTokens() external {
+        // Set new validity period
+        uint256 newPeriod = 90 days;
+        vm.prank(owner);
+        sbtContract.setValidityPeriod(newPeriod);
+
+        // Mint new token
+        ISelfVerificationRoot.DiscloseCircuitProof memory proof = _prepareForVerifySelfProof();
+        vm.prank(relayer);
+        sbtContract.verifySelfProof(proof);
+
+        // Check expiry uses new period
+        uint256 expectedExpiry = block.timestamp + newPeriod;
+        uint256 actualExpiry = sbtContract.getTokenExpiry(1);
+        assertEq(actualExpiry, expectedExpiry);
+    }
+
+    function test_OwnershipTransfer() external {
+        address newOwner = makeAddr("newOwner");
+
+        vm.prank(owner);
+        sbtContract.transferOwnership(newOwner);
+
+        assertEq(sbtContract.owner(), newOwner);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                             HELPER FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
 
     function _prepareForVerifySelfProof() internal returns (ISelfVerificationRoot.DiscloseCircuitProof memory proof) {
         return _prepareForVerifySelfProofWithNullifier(user, TEST_NULLIFIER);

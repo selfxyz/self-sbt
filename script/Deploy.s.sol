@@ -13,7 +13,11 @@ contract Deploy is BaseScript {
         uint256[] memory attestationIdList = _parseAttestationIds(attestationIdListStr);
 
         sbt = new SelfPassportSBTV1(
-            vm.envAddress("IDENTITY_VERIFICATION_HUB_ADDRESS"), vm.envUint("SCOPE_VALUE"), attestationIdList
+            vm.envAddress("IDENTITY_VERIFICATION_HUB_ADDRESS"),
+            vm.envUint("SCOPE_VALUE"),
+            attestationIdList,
+            vm.envOr("OWNER_ADDRESS", broadcaster), // Default to broadcaster if not specified
+            vm.envOr("VALIDITY_PERIOD", uint256(180 days)) // Default to 180 days if not specified
         );
     }
 

@@ -3,10 +3,11 @@ pragma solidity 0.8.28;
 
 import { SelfVerificationRoot } from "@selfxyz/contracts/contracts/abstract/SelfVerificationRoot.sol";
 import { ISelfVerificationRoot } from "@selfxyz/contracts/contracts/interfaces/ISelfVerificationRoot.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 
 import { ERC5192 } from "./ERC5192.sol";
 
-contract SelfPassportSBTV1 is SelfVerificationRoot, ERC5192 {
+contract SelfPassportSBTV1 is SelfVerificationRoot, ERC5192, Ownable {
     /*//////////////////////////////////////////////////////////////
                             STATE VARIABLES
     //////////////////////////////////////////////////////////////*/
@@ -14,22 +15,21 @@ contract SelfPassportSBTV1 is SelfVerificationRoot, ERC5192 {
     mapping(address user => uint256 tokenId) internal _userToTokenId;
     mapping(uint256 tokenId => uint256 expiryTimestamp) internal _expiryTimestamps;
     uint64 internal _nextTokenId;
-
-    /*//////////////////////////////////////////////////////////////
-                               CONSTANTS
-    //////////////////////////////////////////////////////////////*/
-    uint256 public constant VALIDITY_PERIOD = 180 days;
+    uint256 public validityPeriod;
 
     /*//////////////////////////////////////////////////////////////
                                  EVENTS
     //////////////////////////////////////////////////////////////*/
     event SBTMinted(address indexed to, uint256 indexed tokenId, uint256 indexed expiryTimestamp);
     event SBTUpdated(uint256 indexed tokenId, uint256 indexed newExpiryTimestamp);
+    event SBTBurned(uint256 indexed tokenId, address indexed user);
+    event ValidityPeriodUpdated(uint256 oldPeriod, uint256 newPeriod);
 
     /*//////////////////////////////////////////////////////////////
                                  ERRORS
     //////////////////////////////////////////////////////////////*/
     error RegisteredNullifier();
+    error InvalidValidityPeriod();
 
     /*//////////////////////////////////////////////////////////////
                               CONSTRUCTOR
@@ -37,12 +37,17 @@ contract SelfPassportSBTV1 is SelfVerificationRoot, ERC5192 {
     constructor(
         address _identityVerificationHubAddress,
         uint256 _scopeValue,
-        uint256[] memory _attestationIdList
+        uint256[] memory _attestationIdList,
+        address _owner,
+        uint256 _validityPeriod
     )
         SelfVerificationRoot(_identityVerificationHubAddress, _scopeValue, _attestationIdList)
         ERC5192("SelfPassportSBTV1", "SELFSBTV1", true) // Lock the token
+        Ownable(_owner)
     {
+        if (_validityPeriod == 0) revert InvalidValidityPeriod();
         _nextTokenId = 1;
+        validityPeriod = _validityPeriod;
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -64,7 +69,7 @@ contract SelfPassportSBTV1 is SelfVerificationRoot, ERC5192 {
             // Case 1: Nullifier NEW + Receiver NO SBT → mint
             super.verifySelfProof(proof);
 
-            uint256 newExpiryTimestamp = block.timestamp + VALIDITY_PERIOD;
+            uint256 newExpiryTimestamp = block.timestamp + validityPeriod;
             uint64 newTokenId = _nextTokenId++;
 
             // Mint token and set expiry
@@ -80,7 +85,7 @@ contract SelfPassportSBTV1 is SelfVerificationRoot, ERC5192 {
             // Case 2: Nullifier NEW + Receiver HAS SBT → update (no owner check needed)
             super.verifySelfProof(proof);
 
-            uint256 newExpiryTimestamp = block.timestamp + VALIDITY_PERIOD;
+            uint256 newExpiryTimestamp = block.timestamp + validityPeriod;
 
             // Update existing token's expiry
             _expiryTimestamps[receiverTokenId] = newExpiryTimestamp;
@@ -104,11 +109,44 @@ contract SelfPassportSBTV1 is SelfVerificationRoot, ERC5192 {
             // Owner matches → update expiry
             super.verifySelfProof(proof);
 
-            uint256 newExpiryTimestamp = block.timestamp + VALIDITY_PERIOD;
+            uint256 newExpiryTimestamp = block.timestamp + validityPeriod;
             _expiryTimestamps[receiverTokenId] = newExpiryTimestamp;
 
             emit SBTUpdated(receiverTokenId, newExpiryTimestamp);
         }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                             OWNER FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Burn a user's SBT token
+    /// @param tokenId The token ID to burn
+    function burnSBT(uint256 tokenId) external onlyOwner {
+        address tokenOwner = _ownerOf(tokenId);
+        require(tokenOwner != address(0), "Token does not exist");
+
+        // Clean up all mappings
+        _userToTokenId[tokenOwner] = 0;
+        delete _expiryTimestamps[tokenId];
+
+        // Need to find and clean up nullifier mappings
+        // This is a limitation - we can't efficiently reverse lookup nullifiers
+        // In practice, this might require an additional mapping or event tracking
+
+        _burn(tokenId);
+        emit SBTBurned(tokenId, tokenOwner);
+    }
+
+    /// @notice Update the validity period for new tokens
+    /// @param _newValidityPeriod The new validity period in seconds
+    function setValidityPeriod(uint256 _newValidityPeriod) external onlyOwner {
+        if (_newValidityPeriod == 0) revert InvalidValidityPeriod();
+
+        uint256 oldPeriod = validityPeriod;
+        validityPeriod = _newValidityPeriod;
+
+        emit ValidityPeriodUpdated(oldPeriod, _newValidityPeriod);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -145,5 +183,11 @@ contract SelfPassportSBTV1 is SelfVerificationRoot, ERC5192 {
     /// @return tokenId The token ID (0 if user has no token)
     function getTokenIdByAddress(address user) external view returns (uint256 tokenId) {
         return _userToTokenId[user];
+    }
+
+    /// @notice Get the current validity period
+    /// @return The validity period in seconds
+    function getValidityPeriod() external view returns (uint256) {
+        return validityPeriod;
     }
 }
