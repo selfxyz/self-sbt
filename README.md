@@ -1,7 +1,6 @@
 # SelfPassportSBTV1
 
-Soulbound Token (SBT) contract implementing Self's identity verification system. Each user gets one non-transferable
-token that proves verified identity status.
+Soulbound Token (SBT) contract implementing Self's identity verification system. Designed with the **one dapp ↔ one SBT** model where each dApp deploys their own SBT contract for isolated, privacy-preserving identity verification.
 
 ## Quick Start
 
@@ -19,12 +18,39 @@ forge test
 forge script script/Deploy.s.sol --rpc-url $RPC_URL --private-key $PRIVATE_KEY --broadcast
 ```
 
+## Privacy-First Architecture
+
+The **one dapp ↔ one SBT** model ensures:
+- **Isolated Identity Verification**: Each dApp has its own SBT contract with separate nullifier spaces
+- **No Cross-dApp Tracking**: Users can't be linked across different applications
+- **dApp-Specific Policies**: Each deployment can have custom validity periods and governance rules
+- **Granular Privacy Control**: Users prove identity to individual applications without revealing cross-platform activity
+
 ## Core Features
 
-- **One SBT per User**: Each address can only have one active token
+- **One SBT per User**: Each address can only have one active token per dApp
 - **Anti-Replay Protection**: Each nullifier can only be used by its original owner
-- **Time-bounded Validity**: 180-day expiry period for all tokens
+- **Configurable Validity**: Owner-controlled expiry periods
 - **Soulbound**: Non-transferable via ERC5192 standard
+- **Owner Controls**: Burn capability and validity period management
+
+## Owner Capabilities
+
+The contract owner (typically the dApp) can:
+- **Set Validity Period**: Customize token expiry duration for their use case
+- **Burn Tokens**: Remove user SBTs when necessary (abuse, violations, etc.)
+- **Transfer Ownership**: Change contract control as needed
+
+```solidity
+// Set custom validity period (e.g., 30 days for short-term verification)
+sbtContract.setValidityPeriod(30 days);
+
+// Burn a specific user's token
+sbtContract.burnSBT(tokenId);
+
+// Transfer ownership
+sbtContract.transferOwnership(newOwner);
+```
 
 ## Logic Flow
 
@@ -101,9 +127,13 @@ async function getUserSBT(userAddress) {
   const tokenId = await contract.getTokenIdByAddress(userAddress);
   if (tokenId === 0) return null;
 
-  const [isValid, expiry] = await Promise.all([contract.isTokenValid(tokenId), contract.getTokenExpiry(tokenId)]);
+  const [isValid, expiry, validityPeriod] = await Promise.all([
+    contract.isTokenValid(tokenId), 
+    contract.getTokenExpiry(tokenId),
+    contract.getValidityPeriod()
+  ]);
 
-  return { tokenId, isValid, expiry };
+  return { tokenId, isValid, expiry, validityPeriod };
 }
 ```
 
@@ -116,6 +146,8 @@ async function getUserSBT(userAddress) {
 IDENTITY_VERIFICATION_HUB_ADDRESS=0x1234567890123456789012345678901234567890
 SCOPE_VALUE=12345
 ATTESTATION_ID_LIST=1,2,3
+OWNER_ADDRESS=0x1234567890123456789012345678901234567890
+VALIDITY_PERIOD=15552000  # 180 days in seconds
 ```
 
 ### Deploy Commands
@@ -130,10 +162,11 @@ forge script script/Deploy.s.sol --rpc-url $MAINNET_RPC_URL --private-key $PRIVA
 
 ## Security Model
 
-- **Nullifier Binding**: Each nullifier permanently links to a specific token
+- **Nullifier Binding**: Each nullifier permanently links to a specific token within this dApp's scope
 - **Owner Protection**: Prevents cross-user nullifier theft
-- **Expiry Enforcement**: Automatic 180-day validity period
+- **Configurable Expiry**: Owner-controlled validity periods for different use cases
 - **Soulbound**: Immutable ownership after minting
+- **Privacy Isolation**: No linkability across different dApp deployments
 
 ## Testing
 
@@ -141,16 +174,20 @@ forge script script/Deploy.s.sol --rpc-url $MAINNET_RPC_URL --private-key $PRIVA
 # Run all tests
 forge test -vv
 
-# Test specific cases
+# Test specific functionality
 forge test --match-test "test_VerifySelfProof_Case"
+forge test --match-test "test_BurnSBT"
+forge test --match-test "test_SetValidityPeriod"
 ```
 
-**Test Coverage**: 7 tests covering all 4 logic cases plus utility functions
+**Test Coverage**: 15+ tests covering all 4 logic cases, owner functions, and edge cases
 
 ## Error Handling
 
 - `RegisteredNullifier()`: Thrown when nullifier is already used inappropriately
 - `ERC5192Locked()`: Thrown when attempting to transfer soulbound tokens
+- `InvalidValidityPeriod()`: Thrown when setting validity period to zero
+- `Ownable: caller is not the owner`: Thrown when non-owner tries to call owner functions
 
 ## License
 
