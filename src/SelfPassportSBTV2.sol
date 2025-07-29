@@ -34,6 +34,7 @@ contract SelfPassportSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
     error RegisteredNullifier();
     error InvalidValidityPeriod();
     error TokenDoesNotExist();
+    error InvalidReceiver();
 
     constructor(
         address _identityVerificationHubAddress,
@@ -59,14 +60,10 @@ contract SelfPassportSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Get the config ID for the verification
-    /// @param destinationChainId The destination chain ID
-    /// @param userIdentifier The user identifier
-    /// @param userDefinedData The user defined data
-    /// @return The config ID
     function getConfigId(
-        bytes32 destinationChainId,
-        bytes32 userIdentifier,
-        bytes memory userDefinedData
+        bytes32,
+        bytes32,
+        bytes memory
     )
         public
         view
@@ -78,16 +75,17 @@ contract SelfPassportSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
 
     /// @notice Custom verification hook that can be overridden by implementing contracts
     /// @param genericDiscloseOutput The generic disclose output from the hub
-    /// @param userData The user defined data passed through the verification process
     function customVerificationHook(
         ISelfVerificationRoot.GenericDiscloseOutputV2 memory genericDiscloseOutput,
-        bytes memory userData
+        bytes memory
     )
         internal
         override
     {
         uint256 nullifier = genericDiscloseOutput.nullifier;
         address receiver = address(uint160(genericDiscloseOutput.userIdentifier));
+
+        if (receiver == address(0)) revert InvalidReceiver();
 
         // Check if nullifier has been used
         uint256 nullifierTokenId = _nullifierToTokenId[nullifier];
@@ -156,10 +154,6 @@ contract SelfPassportSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
         // Clean up all mappings
         _userToTokenId[tokenOwner] = 0;
         delete _expiryTimestamps[tokenId];
-
-        // Need to find and clean up nullifier mappings
-        // This is a limitation - we can't efficiently reverse lookup nullifiers
-        // In practice, this might require an additional mapping or event tracking
 
         _burn(tokenId);
         emit SBTBurned(tokenId, tokenOwner);
