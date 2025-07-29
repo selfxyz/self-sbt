@@ -60,16 +60,7 @@ contract SelfPassportSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
     //////////////////////////////////////////////////////////////*/
 
     /// @notice Get the config ID for the verification
-    function getConfigId(
-        bytes32,
-        bytes32,
-        bytes memory
-    )
-        public
-        view
-        override
-        returns (bytes32)
-    {
+    function getConfigId(bytes32, bytes32, bytes memory) public view override returns (bytes32) {
         return verificationConfigId;
     }
 
