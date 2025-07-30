@@ -113,7 +113,18 @@ contract SelfPassportSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
             emit SBTUpdated(receiverTokenId, newExpiryTimestamp);
         } else if (nullifierIsUsed && !receiverHasSBT) {
             // Case 3: Nullifier USED + Receiver NO SBT → revert
-            revert RegisteredNullifier();
+            uint256 newExpiryTimestamp = block.timestamp + validityPeriod;
+            uint64 newTokenId = _nextTokenId++;
+
+            // Mint token and set expiry
+            _mint(receiver, newTokenId);
+            _expiryTimestamps[newTokenId] = newExpiryTimestamp;
+
+            // Update mappings
+            _nullifierToTokenId[nullifier] = newTokenId;
+            _userToTokenId[receiver] = newTokenId;
+
+            emit SBTMinted(receiver, newTokenId, newExpiryTimestamp);
         } else {
             // Case 4: Nullifier USED + Receiver HAS SBT → check owner match
             address nullifierOwner = _ownerOf(nullifierTokenId);

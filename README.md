@@ -83,7 +83,7 @@ The contract handles four scenarios based on nullifier usage and receiver SBT ow
 | ---------------- | ---------------- | ------------------ | ---------------------------------------------- |
 | **NEW**          | **NO**           | **🟢 MINT**        | First-time mint: Create new SBT for receiver   |
 | **NEW**          | **YES**          | **🟡 UPDATE**      | Edge case: Different passport for same address |
-| **USED**         | **NO**           | **🔴 REVERT**      | Invalid: Nullifier already registered          |
+| **USED**         | **NO**           | **🟢 MINT**        | New minet: Nullifier had burnt previous SBT    |
 | **USED**         | **YES**          | **🔍 CHECK OWNER** | Verify if nullifier owner matches receiver     |
 
 ### Case 4 Breakdown
