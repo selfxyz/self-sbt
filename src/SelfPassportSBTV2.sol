@@ -112,19 +112,22 @@ contract SelfPassportSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
 
             emit SBTUpdated(receiverTokenId, newExpiryTimestamp);
         } else if (nullifierIsUsed && !receiverHasSBT) {
-            // Case 3: Nullifier USED + Receiver NO SBT → revert
-            uint256 newExpiryTimestamp = block.timestamp + validityPeriod;
-            uint64 newTokenId = _nextTokenId++;
-
-            // Mint token and set expiry
-            _mint(receiver, newTokenId);
-            _expiryTimestamps[newTokenId] = newExpiryTimestamp;
-
-            // Update mappings
-            _nullifierToTokenId[nullifier] = newTokenId;
-            _userToTokenId[receiver] = newTokenId;
-
-            emit SBTMinted(receiver, newTokenId, newExpiryTimestamp);
+            // Case 3: Nullifier USED + Receiver NO SBT → recover burned token or revert
+            address currentOwner = _ownerOf(nullifierTokenId);
+            
+            if (currentOwner == address(0)) {
+                // Token was burned by admin, recover to new address with same token ID
+                uint256 newExpiryTimestamp = block.timestamp + validityPeriod;
+                
+                _mint(receiver, nullifierTokenId);
+                _expiryTimestamps[nullifierTokenId] = newExpiryTimestamp;
+                _userToTokenId[receiver] = nullifierTokenId;
+                
+                emit SBTMinted(receiver, nullifierTokenId, newExpiryTimestamp);
+            } else {
+                // Token still active, user must ask admin to burn first
+                revert RegisteredNullifier();
+            }
         } else {
             // Case 4: Nullifier USED + Receiver HAS SBT → check owner match
             address nullifierOwner = _ownerOf(nullifierTokenId);
@@ -146,14 +149,14 @@ contract SelfPassportSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
                              OWNER FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Burn a user's SBT token
+    /// @notice Burn a user's SBT token (preserves nullifier mapping for recovery)
     /// @param tokenId The token ID to burn
-    /// @dev This function can only be called by the owner
+    /// @dev This function can only be called by the owner. Nullifier mapping is preserved for token recovery.
     function burnSBT(uint256 tokenId) external onlyOwner {
         address tokenOwner = _ownerOf(tokenId);
         if (tokenOwner == address(0)) revert TokenDoesNotExist();
 
-        // Clean up all mappings
+        // Clean up user and expiry mappings (nullifier mapping preserved for recovery)
         _userToTokenId[tokenOwner] = 0;
         delete _expiryTimestamps[tokenId];
 
