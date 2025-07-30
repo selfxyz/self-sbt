@@ -114,15 +114,15 @@ contract SelfPassportSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
         } else if (nullifierIsUsed && !receiverHasSBT) {
             // Case 3: Nullifier USED + Receiver NO SBT → recover burned token or revert
             address currentOwner = _ownerOf(nullifierTokenId);
-            
+
             if (currentOwner == address(0)) {
                 // Token was burned by admin, recover to new address with same token ID
                 uint256 newExpiryTimestamp = block.timestamp + validityPeriod;
-                
+
                 _mint(receiver, nullifierTokenId);
                 _expiryTimestamps[nullifierTokenId] = newExpiryTimestamp;
                 _userToTokenId[receiver] = nullifierTokenId;
-                
+
                 emit SBTMinted(receiver, nullifierTokenId, newExpiryTimestamp);
             } else {
                 // Token still active, user must ask admin to burn first

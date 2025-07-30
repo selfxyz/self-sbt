@@ -79,18 +79,18 @@ graph TD
 
 The contract handles four scenarios based on nullifier usage and receiver SBT ownership:
 
-| Nullifier Status | Receiver Has SBT | Action             | Description                                    |
-| ---------------- | ---------------- | ------------------ | ---------------------------------------------- |
-| **NEW**          | **NO**           | **🟢 MINT**        | First-time mint: Create new SBT for receiver   |
-| **NEW**          | **YES**          | **🟡 UPDATE**      | Edge case: Different passport for same address |
+| Nullifier Status | Receiver Has SBT | Action                | Description                                    |
+| ---------------- | ---------------- | --------------------- | ---------------------------------------------- |
+| **NEW**          | **NO**           | **🟢 MINT**           | First-time mint: Create new SBT for receiver   |
+| **NEW**          | **YES**          | **🟡 UPDATE**         | Edge case: Different passport for same address |
 | **USED**         | **NO**           | **🔍 RECOVER/REVERT** | Recover burned token or revert if still active |
-| **USED**         | **YES**          | **🔍 CHECK OWNER** | Verify if nullifier owner matches receiver     |
+| **USED**         | **YES**          | **🔍 CHECK OWNER**    | Verify if nullifier owner matches receiver     |
 
 ### Case 3 Breakdown
 
-| Token Owner      | Action        | Description                                |
-| ---------------- | ------------- | ------------------------------------------ |
-| **address(0)**   | **🟢 RECOVER** | Token was burned, recover to new address  |
+| Token Owner      | Action         | Description                                 |
+| ---------------- | -------------- | ------------------------------------------- |
+| **address(0)**   | **🟢 RECOVER** | Token was burned, recover to new address    |
 | **Active owner** | **🔴 REVERT**  | Token still active, ask admin to burn first |
 
 ### Case 4 Breakdown
@@ -138,7 +138,7 @@ The SBT contract supports two distinct recovery scenarios through different mech
 sbtContract.burnSBT(tokenId);
 
 // Check if nullifier can be recovered
-bool canRecover = sbtContract.isNullifierUsed(nullifier) && 
+bool canRecover = sbtContract.isNullifierUsed(nullifier) &&
                   sbtContract.getTokenIdByAddress(userAddress) == 0;
 ```
 
@@ -147,21 +147,26 @@ bool canRecover = sbtContract.isNullifierUsed(nullifier) &&
 **Known Limitation: Nullifier Ambiguity Attack**
 
 Due to the zero-knowledge nature of the system, there is no cryptographic way to distinguish between:
+
 - Same person renewing expired passport (legitimate Case 2)
 - Different person targeting existing wallet (potential attack)
 
-Both scenarios result in multiple nullifiers mapping to the same token ID. This creates a theoretical attack vector where:
+Both scenarios result in multiple nullifiers mapping to the same token ID. This creates a theoretical attack vector
+where:
+
 1. Attacker triggers Case 2 to link their nullifier to victim's token
 2. Attacker requests admin to burn the token
 3. Attacker recovers the token to their own wallet via Case 3
 
 **Mitigation Strategies:**
+
 - **Admin Due Diligence**: Implement robust identity verification before processing burn requests
 - **User Education**: Document that sharing wallet addresses reduces security
 - **Monitoring**: Track unusual patterns in Case 2 triggers and recovery requests
 - **Future Enhancement**: Consider hierarchical identity systems for cryptographic continuity
 
-This limitation is inherent to privacy-preserving identity systems and represents the classic tradeoff between privacy and verifiable identity continuity.
+This limitation is inherent to privacy-preserving identity systems and represents the classic tradeoff between privacy
+and verifiable identity continuity.
 
 ## Integration
 
