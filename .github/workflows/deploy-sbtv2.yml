@@ -25,7 +25,12 @@ on:
         description: "Scope identifier used in your frontend Self SDK"
         required: true
         type: string
-      
+      placeholder_scope:
+        description: "Placeholder scope value for initial deployment (default: 1)"
+        required: false
+        default: "1"
+        type: string
+
       # Optional parameters (have defaults or fallbacks)
       custom_deployer_private_key:
         description: "Custom deployer private key (optional - uses default deployer if not provided)"
@@ -171,56 +176,6 @@ jobs:
 
           echo "✅ All inputs validated successfully"
 
-      - name: Predict CREATE2 address
-        id: predict-address
-        env:
-          IDENTITY_VERIFICATION_HUB_ADDRESS: ${{ steps.network-config.outputs.IDENTITY_VERIFICATION_HUB_ADDRESS }}
-          OWNER_ADDRESS: ${{ github.event.inputs.owner_address }}
-          VERIFICATION_CONFIG_ID: ${{ github.event.inputs.verification_config_id }}
-          VALIDITY_PERIOD: ${{ github.event.inputs.validity_period }}
-          SCOPE_SEED: ${{ github.event.inputs.scope_seed }}
-          ETH_FROM: ${{ steps.setup-deployer.outputs.DEPLOYER_ADDRESS }}
-        run: |
-          echo "🔮 Predicting CREATE2 address using Foundry..."
-          
-          # Use Foundry's native CREATE2 prediction from DeployV2 script
-          forge script script/DeployV2.s.sol:DeployV2 --sig "predictAddress()" > prediction_output.log 2>&1
-          
-          # Extract predicted address from output (handle potential whitespace)
-          PREDICTED_ADDRESS=$(grep "PREDICTED_ADDRESS:" prediction_output.log | awk '{print $2}')
-          
-          if [[ -z "$PREDICTED_ADDRESS" ]]; then
-            echo "❌ Failed to predict address"
-            cat prediction_output.log
-            exit 1
-          fi
-          
-          echo "PREDICTED_ADDRESS=$PREDICTED_ADDRESS" >> $GITHUB_OUTPUT
-          echo "✅ Predicted CREATE2 address: $PREDICTED_ADDRESS"
-
-      - name: Calculate scope value
-        id: calculate-scope
-        env:
-          PREDICTED_ADDRESS: ${{ steps.predict-address.outputs.PREDICTED_ADDRESS }}
-          SCOPE_SEED: ${{ github.event.inputs.scope_seed }}
-        run: |
-          echo "🧮 Calculating scope value using predicted address..."
-
-          cd ts-scripts
-          pnpm run calculate-scope > ../scope_output.log 2>&1
-
-          # Extract scope value from output
-          SCOPE_VALUE=$(grep "Scope Value:" ../scope_output.log | tail -n1 | cut -d' ' -f3)
-
-          if [[ -z "$SCOPE_VALUE" ]]; then
-            echo "❌ Failed to calculate scope value"
-            cat ../scope_output.log
-            exit 1
-          fi
-
-          echo "SCOPE_VALUE=$SCOPE_VALUE" >> $GITHUB_OUTPUT
-          echo "✅ Scope value calculated: $SCOPE_VALUE"
-
       - name: Build contracts
         run: |
           echo "🔨 Building Solidity contracts..."
@@ -228,30 +183,20 @@ jobs:
           echo "✅ Contract compilation successful!"
 
       - name: Deploy contract
+        id: deploy-contract
         env:
           IDENTITY_VERIFICATION_HUB_ADDRESS: ${{ steps.network-config.outputs.IDENTITY_VERIFICATION_HUB_ADDRESS }}
-          SCOPE_VALUE: ${{ steps.calculate-scope.outputs.SCOPE_VALUE }}
-          SCOPE_SEED: ${{ github.event.inputs.scope_seed }}
+          PLACEHOLDER_SCOPE: ${{ github.event.inputs.placeholder_scope }}
           OWNER_ADDRESS: ${{ github.event.inputs.owner_address }}
           VALIDITY_PERIOD: ${{ github.event.inputs.validity_period }}
           VERIFICATION_CONFIG_ID: ${{ github.event.inputs.verification_config_id }}
           ETH_FROM: ${{ steps.setup-deployer.outputs.DEPLOYER_ADDRESS }}
         run: |
-          echo "🚀 Deploying SelfSBTV2 contract..."
+          echo "🚀 Deploying SelfSBTV2 contract with placeholder scope..."
 
-          # Determine verifier URL for Celo networks
-          case "${{ github.event.inputs.network }}" in
-            "celo-mainnet")
-              VERIFIER_URL="https://api.celoscan.io/api"
-              ;;
-            "celo-alfajores")
-              VERIFIER_URL="https://api-alfajores.celoscan.io/api"
-              ;;
-          esac
-
-          # Step 1: Deploy contract (without verification, ignore wallet warnings)
+          # Step 1: Deploy contract with placeholder scope
           DEPLOY_CMD="forge script script/DeployV2.s.sol:DeployV2 --rpc-url ${{ steps.network-config.outputs.RPC_URL }} --private-key $PRIVATE_KEY --broadcast"
-          
+
           echo "🚀 Step 1: Executing deployment..."
           eval $DEPLOY_CMD || {
             # Check if deployment actually succeeded despite exit code error
@@ -262,98 +207,135 @@ jobs:
               exit 1
             fi
           }
-          echo "✅ Contract deployment step completed!"
 
-          # Step 2: Verify contract using forge verify-contract (following Celo docs pattern)
-          if [[ -n "$CELOSCAN_API_KEY" ]]; then
-            echo "🔍 Step 2: Verifying contract on CeloScan..."
-            
-            # Find the most recent deployment and extract contract address
-            BROADCAST_DIR="broadcast/DeployV2.s.sol/${{ steps.network-config.outputs.CHAIN_ID }}"
-            if [[ -f "$BROADCAST_DIR/run-latest.json" ]]; then
-              # Extract the deployed contract address from the JSON
-              CONTRACT_ADDRESS=$(jq -r '.transactions[] | select(.contractName == "SelfSBTV2") | .contractAddress' "$BROADCAST_DIR/run-latest.json" | head -1)
-              
-              if [[ -n "$CONTRACT_ADDRESS" && "$CONTRACT_ADDRESS" != "null" ]]; then
-                echo "📋 Found deployed contract at: $CONTRACT_ADDRESS"
-                echo "🔗 View on explorer: ${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }}/address/$CONTRACT_ADDRESS"
-                
-                # Determine chain name for forge verify-contract (following Celo docs)
-                case "${{ github.event.inputs.network }}" in
-                  "celo-mainnet")
-                    CHAIN_NAME="celo"
-                    ;;
-                  "celo-alfajores")
-                    CHAIN_NAME="celo-alfajores"
-                    ;;
-                esac
-                
-                # Encode constructor arguments for verification
-                CONSTRUCTOR_ARGS=$(cast abi-encode "constructor(address,uint256,address,uint256,bytes32)" \
-                  $IDENTITY_VERIFICATION_HUB_ADDRESS \
-                  $SCOPE_VALUE \
-                  $OWNER_ADDRESS \
-                  $VALIDITY_PERIOD \
-                  $VERIFICATION_CONFIG_ID)
-                
-                echo "📋 Constructor args: $CONSTRUCTOR_ARGS"
-                
-                # Use forge verify-contract with constructor arguments
-                echo "📋 Executing: forge verify-contract --constructor-args $CONSTRUCTOR_ARGS --chain-id $CHAIN_NAME $CONTRACT_ADDRESS src/SelfSBTV2.sol:SelfSBTV2 --watch"
-                forge verify-contract --constructor-args $CONSTRUCTOR_ARGS --chain-id $CHAIN_NAME $CONTRACT_ADDRESS src/SelfSBTV2.sol:SelfSBTV2 --watch || {
-                  echo "⚠️ Verification failed. You can verify manually at:"
-                  echo "📋 ${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }}/verifyContract"
-                  echo "📋 Contract Address: $CONTRACT_ADDRESS"
-                  echo "📋 Constructor arguments available in: $BROADCAST_DIR/run-latest.json"
-                }
-              else
-                echo "⚠️ Could not extract contract address from deployment logs"
-              fi
-            else
-              echo "⚠️ Could not find deployment artifacts for verification"
-            fi
-          fi
-
-      - name: Create deployment summary
-        run: |
-          echo "## 🎉 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          # Extract contract address for summary
+          # Extract deployed contract address
           BROADCAST_DIR="broadcast/DeployV2.s.sol/${{ steps.network-config.outputs.CHAIN_ID }}"
           if [[ -f "$BROADCAST_DIR/run-latest.json" ]]; then
             CONTRACT_ADDRESS=$(jq -r '.transactions[] | select(.contractName == "SelfSBTV2") | .contractAddress' "$BROADCAST_DIR/run-latest.json" | head -1)
+            
             if [[ -n "$CONTRACT_ADDRESS" && "$CONTRACT_ADDRESS" != "null" ]]; then
-              echo "### 🔗 Quick Links" >> $GITHUB_STEP_SUMMARY
-              echo "- **Contract Address**: [\`$CONTRACT_ADDRESS\`](${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }}/address/$CONTRACT_ADDRESS)" >> $GITHUB_STEP_SUMMARY
-              echo "- **View on Explorer**: [${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }}/address/$CONTRACT_ADDRESS](${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }}/address/$CONTRACT_ADDRESS)" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "CONTRACT_ADDRESS=$CONTRACT_ADDRESS" >> $GITHUB_OUTPUT
+              echo "📋 Contract deployed at: $CONTRACT_ADDRESS"
+              echo "🔗 View on explorer: ${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }}/address/$CONTRACT_ADDRESS"
+            else
+              echo "❌ Could not extract contract address from deployment"
+              exit 1
             fi
+          else
+            echo "❌ Could not find deployment artifacts"
+            exit 1
           fi
-          
+
+          echo "✅ Contract deployment completed!"
+
+      - name: Calculate and set actual scope
+        env:
+          CONTRACT_ADDRESS: ${{ steps.deploy-contract.outputs.CONTRACT_ADDRESS }}
+          SCOPE_SEED: ${{ github.event.inputs.scope_seed }}
+          OWNER_ADDRESS: ${{ github.event.inputs.owner_address }}
+        run: |
+          echo "🧮 Calculating actual scope using deployed address..."
+
+          # Calculate scope using deployed address
+          cd ts-scripts
+          DEPLOYED_ADDRESS=$CONTRACT_ADDRESS pnpm run calculate-scope > ../scope_output.log 2>&1
+
+          # Extract scope value from output
+          SCOPE_VALUE=$(grep "Scope Value:" ../scope_output.log | tail -n1 | cut -d' ' -f3)
+
+          if [[ -z "$SCOPE_VALUE" ]]; then
+            echo "❌ Failed to calculate scope value"
+            cat ../scope_output.log
+            exit 1
+          fi
+
+          echo "✅ Calculated scope value: $SCOPE_VALUE"
+
+          # Call setScope function on the deployed contract
+          echo "🔧 Setting scope value on deployed contract..."
+          cast send $CONTRACT_ADDRESS "setScope(uint256)" $SCOPE_VALUE --rpc-url ${{ steps.network-config.outputs.RPC_URL }} --private-key $PRIVATE_KEY || {
+            echo "⚠️ Failed to call setScope automatically. Manual step required:"
+            echo "📋 Call setScope($SCOPE_VALUE) on contract $CONTRACT_ADDRESS"
+            echo "📋 Using: cast send $CONTRACT_ADDRESS \"setScope(uint256)\" $SCOPE_VALUE --rpc-url ${{ steps.network-config.outputs.RPC_URL }} --private-key \$PRIVATE_KEY"
+            exit 1
+          }
+          echo "✅ Scope value set successfully!"
+
+      - name: Verify contract
+        if: env.CELOSCAN_API_KEY != ''
+        env:
+          CONTRACT_ADDRESS: ${{ steps.deploy-contract.outputs.CONTRACT_ADDRESS }}
+          IDENTITY_VERIFICATION_HUB_ADDRESS: ${{ steps.network-config.outputs.IDENTITY_VERIFICATION_HUB_ADDRESS }}
+          PLACEHOLDER_SCOPE: ${{ github.event.inputs.placeholder_scope }}
+          OWNER_ADDRESS: ${{ github.event.inputs.owner_address }}
+          VALIDITY_PERIOD: ${{ github.event.inputs.validity_period }}
+          VERIFICATION_CONFIG_ID: ${{ github.event.inputs.verification_config_id }}
+        run: |
+          echo "🔍 Verifying contract on CeloScan..."
+
+          # Determine chain name for forge verify-contract (following Celo docs)
+          case "${{ github.event.inputs.network }}" in
+            "celo-mainnet")
+              CHAIN_NAME="celo"
+              ;;
+            "celo-alfajores")
+              CHAIN_NAME="celo-alfajores"
+              ;;
+          esac
+
+          # Encode constructor arguments for verification (with placeholder scope)
+          CONSTRUCTOR_ARGS=$(cast abi-encode "constructor(address,uint256,address,uint256,bytes32)" \
+            $IDENTITY_VERIFICATION_HUB_ADDRESS \
+            $PLACEHOLDER_SCOPE \
+            $OWNER_ADDRESS \
+            $VALIDITY_PERIOD \
+            $VERIFICATION_CONFIG_ID)
+
+          echo "📋 Constructor args: $CONSTRUCTOR_ARGS"
+
+          # Use forge verify-contract with constructor arguments
+          forge verify-contract --constructor-args $CONSTRUCTOR_ARGS --chain-id $CHAIN_NAME $CONTRACT_ADDRESS src/SelfSBTV2.sol:SelfSBTV2 --watch || {
+            echo "⚠️ Verification failed. You can verify manually at:"
+            echo "📋 ${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }}/verifyContract"
+            echo "📋 Contract Address: $CONTRACT_ADDRESS"
+          }
+
+      - name: Create deployment summary
+        env:
+          CONTRACT_ADDRESS: ${{ steps.deploy-contract.outputs.CONTRACT_ADDRESS }}
+        run: |
+          echo "## 🎉 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### 🔗 Quick Links" >> $GITHUB_STEP_SUMMARY
+          echo "- **Contract Address**: [\`$CONTRACT_ADDRESS\`](${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }}/address/$CONTRACT_ADDRESS)" >> $GITHUB_STEP_SUMMARY
+          echo "- **View on Explorer**: [${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }}/address/$CONTRACT_ADDRESS](${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }}/address/$CONTRACT_ADDRESS)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
           echo "### Deployment Details" >> $GITHUB_STEP_SUMMARY
           echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| **Network** | ${{ steps.network-config.outputs.NETWORK_NAME }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Chain ID** | ${{ steps.network-config.outputs.CHAIN_ID }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Deployer** | ${{ steps.setup-deployer.outputs.DEPLOYER_ADDRESS }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Predicted Address** | ${{ steps.predict-address.outputs.PREDICTED_ADDRESS }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Contract Address** | $CONTRACT_ADDRESS |" >> $GITHUB_STEP_SUMMARY
           echo "| **Hub Address** | ${{ steps.network-config.outputs.IDENTITY_VERIFICATION_HUB_ADDRESS }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **RPC URL** | ${{ steps.network-config.outputs.RPC_URL }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Block Explorer** | ${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Owner** | ${{ github.event.inputs.owner_address }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Scope Seed** | ${{ github.event.inputs.scope_seed }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Scope Value** | ${{ steps.calculate-scope.outputs.SCOPE_VALUE }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Placeholder Scope** | ${{ github.event.inputs.placeholder_scope }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Validity Period** | ${{ github.event.inputs.validity_period }} seconds |" >> $GITHUB_STEP_SUMMARY
           echo "| **Config ID** | ${{ github.event.inputs.verification_config_id }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
-          echo "1. Check the deployment logs above for the actual deployed contract address" >> $GITHUB_STEP_SUMMARY
-          echo "2. Verify the contract address matches the predicted address" >> $GITHUB_STEP_SUMMARY
-          echo "3. If verification was enabled, check the block explorer for verification status" >> $GITHUB_STEP_SUMMARY
+          echo "### ✅ Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "1. **Contract deployed** with placeholder scope" >> $GITHUB_STEP_SUMMARY
+          echo "2. **Actual scope calculated** from deployed address + scope seed" >> $GITHUB_STEP_SUMMARY
+          echo "3. **Scope value set** on deployed contract automatically" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Important Notes" >> $GITHUB_STEP_SUMMARY
-          echo "- ⚠️ The actual deployed address should match the predicted address" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Contract fully configured and ready for use" >> $GITHUB_STEP_SUMMARY
+          echo "- 🧮 Actual scope value calculated from deployed address + scope seed" >> $GITHUB_STEP_SUMMARY
           echo "- 🔒 Private keys are never logged or stored" >> $GITHUB_STEP_SUMMARY
           echo "- 📋 Contract verification may take a few minutes to complete" >> $GITHUB_STEP_SUMMARY
 

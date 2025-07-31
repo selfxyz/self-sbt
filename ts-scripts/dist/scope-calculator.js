@@ -3,20 +3,18 @@
 /**
  * SelfSBTV2 Scope Calculator
  *
- * This script calculates the scope value by predicting the CREATE2 address and
- * hashing it with the scope seed. The Foundry script uses the same CREATE2 logic
- * for deterministic deployment.
+ * This script calculates the scope value using the deployed contract address
+ * and hashing it with the scope seed. Used for post-deployment scope calculation.
  *
  * Usage:
  *   npm run calculate-scope
  *
  * Environment variables required:
- *   - DEPLOYER_ADDRESS: Address that will deploy the contract
- *   - IDENTITY_VERIFICATION_HUB_ADDRESS: Address of the verification hub
- *   - OWNER_ADDRESS: Address that will own the contract
- *   - VERIFICATION_CONFIG_ID: Verification configuration ID (bytes32)
- *   - VALIDITY_PERIOD: Token validity period in seconds (optional, defaults to 180 days)
- *   - SCOPE_SEED: The scope seed value to hash with the predicted address
+ *   - DEPLOYED_ADDRESS: The deployed contract address (for post-deployment calculation)
+ *   - SCOPE_SEED: The scope seed value to hash with the deployed address
+ *
+ * Alternative usage (for testing):
+ *   - PREDICTED_ADDRESS: A predicted address to use for scope calculation
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -53,13 +51,9 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.hashEndpointWithScope = hashEndpointWithScope;
-exports.predictCreate2Address = predictCreate2Address;
-exports.generateSalt = generateSalt;
-exports.getInitCodeHash = getInitCodeHash;
 exports.validateEthereumAddress = validateEthereumAddress;
 exports.validateScope = validateScope;
 exports.validateBytes32 = validateBytes32;
-const ethers_1 = require("ethers");
 const crypto = __importStar(require("crypto"));
 // Hash function for scope calculation (copied from @selfxyz/core functionality)
 function hashEndpointWithScope(endpoint, scope) {
@@ -75,67 +69,27 @@ function hashEndpointWithScope(endpoint, scope) {
     // Convert to hex string
     return '0x' + hash.toString('hex');
 }
-// CREATE2 address prediction matching Foundry script logic
-function predictCreate2Address(deployerAddress, salt, initCodeHash) {
-    const deployerBytes = ethers_1.ethers.getBytes(deployerAddress);
-    const saltBytes = ethers_1.ethers.getBytes(salt);
-    const initCodeHashBytes = ethers_1.ethers.getBytes(initCodeHash);
-    // CREATE2 formula: keccak256(0xff ++ deployer_address ++ salt ++ keccak256(init_code))
-    const data = ethers_1.ethers.concat([
-        '0xff',
-        deployerBytes,
-        saltBytes,
-        initCodeHashBytes
-    ]);
-    const hash = ethers_1.ethers.keccak256(data);
-    return ethers_1.ethers.getAddress('0x' + hash.slice(-40));
-}
-// Generate salt matching Foundry script logic
-function generateSalt(scopeSeed) {
-    return ethers_1.ethers.keccak256(ethers_1.ethers.toUtf8Bytes(`SelfSBTV2_${scopeSeed}`));
-}
-// Get the init code hash for SelfSBTV2
-function getInitCodeHash(constructorArgs) {
-    // Note: This is a simplified approach. For production, you'd need the actual
-    // compiled bytecode from Foundry.
-    console.log('⚠️  Warning: Using simplified init code hash calculation.');
-    console.log('   For production use, get the actual bytecode from forge.');
-    // Encode constructor arguments
-    const abiCoder = ethers_1.ethers.AbiCoder.defaultAbiCoder();
-    const encodedArgs = abiCoder.encode(['address', 'uint256', 'address', 'uint256', 'bytes32'], constructorArgs);
-    // Placeholder: In reality, you'd get this from: forge inspect SelfSBTV2 bytecode
-    const mockBytecode = '0x608060405234801561001057600080fd5b50'; // Placeholder
-    const initCode = mockBytecode + encodedArgs.slice(2);
-    return ethers_1.ethers.keccak256(initCode);
-}
+// Removed CREATE2 prediction logic - now handled by Foundry script
 // Load and validate environment variables
 function loadEnvironmentConfig() {
-    const deployerAddress = process.env.DEPLOYER_ADDRESS;
-    const hubAddress = process.env.IDENTITY_VERIFICATION_HUB_ADDRESS;
-    const ownerAddress = process.env.OWNER_ADDRESS;
-    const verificationConfigId = process.env.VERIFICATION_CONFIG_ID;
-    const validityPeriod = process.env.VALIDITY_PERIOD || (180 * 24 * 60 * 60).toString(); // 180 days
+    const deployedAddress = process.env.DEPLOYED_ADDRESS;
+    const predictedAddress = process.env.PREDICTED_ADDRESS;
     const scopeSeed = process.env.SCOPE_SEED;
+    // Use DEPLOYED_ADDRESS if available, otherwise fall back to PREDICTED_ADDRESS
+    const contractAddress = deployedAddress || predictedAddress;
     // Validate required environment variables
-    const required = {
-        'DEPLOYER_ADDRESS': deployerAddress,
-        'IDENTITY_VERIFICATION_HUB_ADDRESS': hubAddress,
-        'OWNER_ADDRESS': ownerAddress,
-        'VERIFICATION_CONFIG_ID': verificationConfigId,
-        'SCOPE_SEED': scopeSeed
-    };
-    const missing = Object.entries(required).filter(([, value]) => !value).map(([key]) => key);
-    if (missing.length > 0) {
-        console.error('❌ Missing required environment variables:');
-        missing.forEach(key => console.error(`   - ${key}`));
+    if (!contractAddress) {
+        console.error('❌ Missing required environment variable:');
+        console.error('   - Either DEPLOYED_ADDRESS or PREDICTED_ADDRESS must be provided');
+        process.exit(1);
+    }
+    if (!scopeSeed) {
+        console.error('❌ Missing required environment variable:');
+        console.error('   - SCOPE_SEED');
         process.exit(1);
     }
     return {
-        deployerAddress: deployerAddress,
-        hubAddress: hubAddress,
-        ownerAddress: ownerAddress,
-        verificationConfigId: verificationConfigId,
-        validityPeriod,
+        contractAddress: contractAddress,
         scopeSeed: scopeSeed
     };
 }
@@ -143,38 +97,26 @@ async function main() {
     console.log('🧮 SelfSBTV2 Scope Calculator\n');
     // Load environment variables
     const config = loadEnvironmentConfig();
+    const addressType = process.env.DEPLOYED_ADDRESS ? 'Deployed' : 'Predicted';
     console.log('📋 Configuration:');
-    console.log(`   Deployer: ${config.deployerAddress}`);
-    console.log(`   Hub Address: ${config.hubAddress}`);
-    console.log(`   Owner: ${config.ownerAddress}`);
-    console.log(`   Verification Config ID: ${config.verificationConfigId}`);
-    console.log(`   Validity Period: ${config.validityPeriod} seconds`);
+    console.log(`   ${addressType} Address: ${config.contractAddress}`);
     console.log(`   Scope Seed: "${config.scopeSeed}"\n`);
-    // Step 1: Generate salt (same as Foundry script)
-    const salt = generateSalt(config.scopeSeed);
-    console.log(`🧂 Generated Salt: ${salt}`);
-    // Step 2: Predict CREATE2 address
-    const constructorArgs = [
-        config.hubAddress,
-        '0x0000000000000000000000000000000000000000000000000000000000000000', // Placeholder scope
-        config.ownerAddress,
-        config.validityPeriod,
-        config.verificationConfigId
-    ];
-    const initCodeHash = getInitCodeHash(constructorArgs);
-    const predictedAddress = predictCreate2Address(config.deployerAddress, salt, initCodeHash);
-    console.log(`🔮 Predicted CREATE2 Address: ${predictedAddress}`);
-    // Step 3: Calculate scope value
-    const scopeValue = hashEndpointWithScope(predictedAddress, config.scopeSeed);
+    // Calculate scope value using contract address
+    const scopeValue = hashEndpointWithScope(config.contractAddress, config.scopeSeed);
     console.log(`🎯 Calculated Scope Value: ${scopeValue}`);
-    // Step 4: Output final results for GitHub workflow parsing
+    // Output final results for GitHub workflow parsing
     console.log(`\nResults:`);
     console.log(`Scope Value: ${scopeValue}`);
-    console.log(`Predicted Address: ${predictedAddress}`);
-    console.log(`Salt: ${salt}`);
-    console.log(`\n🚀 Ready for Foundry Deployment!`);
-    console.log(`   The Foundry script will use CREATE2 with the same salt to deploy to: ${predictedAddress}`);
-    console.log(`   Make sure to set SCOPE_VALUE=${scopeValue} in your environment.`);
+    console.log(`Contract Address: ${config.contractAddress}`);
+    if (process.env.DEPLOYED_ADDRESS) {
+        console.log(`\n🔧 Next Step: Call setScope() Function`);
+        console.log(`   Call setScope(${scopeValue}) on the deployed contract`);
+        console.log(`   Contract Address: ${config.contractAddress}`);
+    }
+    else {
+        console.log(`\n🚀 Ready for Contract Deployment!`);
+        console.log(`   Deploy with placeholder scope, then call setScope(${scopeValue})`);
+    }
 }
 // Validation functions
 function validateEthereumAddress(addr) {

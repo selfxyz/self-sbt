@@ -233,6 +233,13 @@ contract SelfSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
         emit ValidityPeriodUpdated(oldPeriod, _newValidityPeriod);
     }
 
+    /// @notice Update the scope value for the endpoint
+    /// @param _newScopeValue The new scope value
+    /// @dev This function can only be called by the owner
+    function setScope(uint256 _newScopeValue) external onlyOwner {
+        _setScope(_newScopeValue);
+    }
+
     /*//////////////////////////////////////////////////////////////
                              VIEW FUNCTIONS
     //////////////////////////////////////////////////////////////*/

@@ -3,20 +3,18 @@
 /**
  * SelfSBTV2 Scope Calculator
  * 
- * This script calculates the scope value by predicting the CREATE2 address and
- * hashing it with the scope seed. The Foundry script uses the same CREATE2 logic
- * for deterministic deployment.
+ * This script calculates the scope value using the deployed contract address
+ * and hashing it with the scope seed. Used for post-deployment scope calculation.
  * 
  * Usage:
  *   npm run calculate-scope
  * 
  * Environment variables required:
- *   - DEPLOYER_ADDRESS: Address that will deploy the contract
- *   - IDENTITY_VERIFICATION_HUB_ADDRESS: Address of the verification hub
- *   - OWNER_ADDRESS: Address that will own the contract
- *   - VERIFICATION_CONFIG_ID: Verification configuration ID (bytes32)
- *   - VALIDITY_PERIOD: Token validity period in seconds (optional, defaults to 180 days)
- *   - SCOPE_SEED: The scope seed value to hash with the predicted address
+ *   - DEPLOYED_ADDRESS: The deployed contract address (for post-deployment calculation)
+ *   - SCOPE_SEED: The scope seed value to hash with the deployed address
+ *
+ * Alternative usage (for testing):
+ *   - PREDICTED_ADDRESS: A predicted address to use for scope calculation
  */
 
 import { ethers } from 'ethers';
@@ -24,7 +22,7 @@ import * as crypto from 'crypto';
 
 // Types
 interface EnvironmentConfig {
-    predictedAddress: string;
+    contractAddress: string;
     scopeSeed: string;
 }
 
@@ -50,25 +48,29 @@ export function hashEndpointWithScope(endpoint: string, scope: string): string {
 
 // Load and validate environment variables
 function loadEnvironmentConfig(): EnvironmentConfig {
+    const deployedAddress = process.env.DEPLOYED_ADDRESS;
     const predictedAddress = process.env.PREDICTED_ADDRESS;
     const scopeSeed = process.env.SCOPE_SEED;
     
-    // Validate required environment variables
-    const required: Record<string, string | undefined> = {
-        'PREDICTED_ADDRESS': predictedAddress,
-        'SCOPE_SEED': scopeSeed
-    };
+    // Use DEPLOYED_ADDRESS if available, otherwise fall back to PREDICTED_ADDRESS
+    const contractAddress = deployedAddress || predictedAddress;
     
-    const missing = Object.entries(required).filter(([, value]) => !value).map(([key]) => key);
-    if (missing.length > 0) {
-        console.error('❌ Missing required environment variables:');
-        missing.forEach(key => console.error(`   - ${key}`));
+    // Validate required environment variables
+    if (!contractAddress) {
+        console.error('❌ Missing required environment variable:');
+        console.error('   - Either DEPLOYED_ADDRESS or PREDICTED_ADDRESS must be provided');
+        process.exit(1);
+    }
+    
+    if (!scopeSeed) {
+        console.error('❌ Missing required environment variable:');
+        console.error('   - SCOPE_SEED');
         process.exit(1);
     }
     
     return {
-        predictedAddress: predictedAddress!,
-        scopeSeed: scopeSeed!
+        contractAddress: contractAddress,
+        scopeSeed: scopeSeed
     };
 }
 
@@ -78,22 +80,28 @@ async function main(): Promise<void> {
     // Load environment variables
     const config = loadEnvironmentConfig();
     
+    const addressType = process.env.DEPLOYED_ADDRESS ? 'Deployed' : 'Predicted';
     console.log('📋 Configuration:');
-    console.log(`   Predicted Address: ${config.predictedAddress}`);
+    console.log(`   ${addressType} Address: ${config.contractAddress}`);
     console.log(`   Scope Seed: "${config.scopeSeed}"\n`);
     
-    // Calculate scope value using predicted address from Foundry
-    const scopeValue = hashEndpointWithScope(config.predictedAddress, config.scopeSeed);
+    // Calculate scope value using contract address
+    const scopeValue = hashEndpointWithScope(config.contractAddress, config.scopeSeed);
     console.log(`🎯 Calculated Scope Value: ${scopeValue}`);
     
     // Output final results for GitHub workflow parsing
     console.log(`\nResults:`);
     console.log(`Scope Value: ${scopeValue}`);
-    console.log(`Predicted Address: ${config.predictedAddress}`);
+    console.log(`Contract Address: ${config.contractAddress}`);
     
-    console.log(`\n🚀 Ready for Foundry Deployment!`);
-    console.log(`   The Foundry script will deploy to the predicted address: ${config.predictedAddress}`);
-    console.log(`   Using calculated scope value: ${scopeValue}`);
+    if (process.env.DEPLOYED_ADDRESS) {
+        console.log(`\n🔧 Next Step: Call setScope() Function`);
+        console.log(`   Call setScope(${scopeValue}) on the deployed contract`);
+        console.log(`   Contract Address: ${config.contractAddress}`);
+    } else {
+        console.log(`\n🚀 Ready for Contract Deployment!`);
+        console.log(`   Deploy with placeholder scope, then call setScope(${scopeValue})`);
+    }
 }
 
 // Validation functions
