@@ -219,13 +219,23 @@ jobs:
         run: |
           echo "🚀 Deploying SelfSBTV2 contract..."
 
+          # Determine chain identifier for verification
+          case "${{ github.event.inputs.network }}" in
+            "celo-mainnet")
+              CHAIN_NAME="celo"
+              ;;
+            "celo-alfajores")
+              CHAIN_NAME="celo_alfajores"
+              ;;
+          esac
+
           # Prepare deployment command
           DEPLOY_CMD="forge script script/DeployV2.s.sol:DeployV2 --rpc-url ${{ steps.network-config.outputs.RPC_URL }} --private-key $PRIVATE_KEY --broadcast"
 
           # Add verification if API key is provided
           if [[ -n "$CELOSCAN_API_KEY" ]]; then
-            DEPLOY_CMD="$DEPLOY_CMD --verify --etherscan-api-key $CELOSCAN_API_KEY"
-            echo "📋 Contract verification enabled"
+            DEPLOY_CMD="$DEPLOY_CMD --verify --chain $CHAIN_NAME --etherscan-api-key $CELOSCAN_API_KEY"
+            echo "📋 Contract verification enabled for chain: $CHAIN_NAME"
           fi
 
           # Execute deployment

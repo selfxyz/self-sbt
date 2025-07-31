@@ -24,6 +24,8 @@
   arbitrum_one = { key = "${API_KEY_ARBISCAN}" }
   avalanche = { key = "${API_KEY_SNOWTRACE}" }
   bnb_smart_chain = { key = "${API_KEY_BSCSCAN}" }
+  celo = { key = "${CELOSCAN_API_KEY}", url = "https://api.celoscan.io/api" }
+  celo_alfajores = { key = "${CELOSCAN_API_KEY}", url = "https://api-alfajores.celoscan.io/api" }
   gnosis_chain = { key = "${API_KEY_GNOSISSCAN}" }
   goerli = { key = "${API_KEY_ETHERSCAN}" }
   mainnet = { key = "${API_KEY_ETHERSCAN}" }
@@ -45,6 +47,8 @@
   arbitrum_one = "https://arbitrum-mainnet.infura.io/v3/${API_KEY_INFURA}"
   avalanche = "https://avalanche-mainnet.infura.io/v3/${API_KEY_INFURA}"
   bnb_smart_chain = "https://bsc-dataseed.binance.org"
+  celo = "https://forno.celo.org"
+  celo_alfajores = "https://alfajores-forno.celo-testnet.org"
   gnosis_chain = "https://rpc.gnosischain.com"
   goerli = "https://goerli.infura.io/v3/${API_KEY_INFURA}"
   localhost = "http://localhost:8545"
