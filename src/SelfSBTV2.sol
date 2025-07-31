@@ -8,12 +8,12 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 
 import { ERC5192 } from "./ERC5192.sol";
 
-/// @title SelfPassportSBTV2
+/// @title SelfSBTV2
 /// @author Self Protocol
 /// @notice A Soulbound Token (SBT) implementation for identity verification using Self Protocol's verification system
 /// @dev This contract extends SelfVerificationRoot for identity verification, ERC5192 for soulbound functionality,
 ///      and Ownable for administrative controls. Tokens are non-transferable and have expiry timestamps.
-contract SelfPassportSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
+contract SelfSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
     /*//////////////////////////////////////////////////////////////
                              STATE VARIABLES
     //////////////////////////////////////////////////////////////*/
