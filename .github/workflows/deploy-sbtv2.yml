@@ -1,0 +1,258 @@
+name: Deploy SelfSBTV2
+
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: 'Network to deploy on'
+        required: true
+        type: choice
+        options:
+          - 'celo-mainnet'
+          - 'celo-alfajores'
+        default: 'celo-alfajores'
+      custom_deployer_private_key:
+        description: 'Custom deployer private key (optional - uses default deployer if not provided)'
+        required: false
+        type: string
+      owner_address:
+        description: 'Address that will own the deployed contract'
+        required: true  
+        type: string
+      verification_config_id:
+        description: 'Verification configuration ID (bytes32 format: 0x...)'
+        required: true
+        type: string
+      scope_seed:
+        description: 'Scope identifier used in your frontend Self SDK (max 20 chars, lowercase)'
+        required: true
+        type: string
+      validity_period:
+        description: 'Token validity period in seconds (default: 15552000 = 180 days)'
+        required: false
+        default: '15552000'
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: ts-scripts/package-lock.json
+        
+    - name: Install Foundry
+      uses: foundry-rs/foundry-toolchain@v1
+      with:
+        version: nightly
+        
+    - name: Install TypeScript dependencies
+      run: |
+        cd ts-scripts
+        npm ci
+        npm run build
+        
+    - name: Configure network settings
+      id: network-config
+      run: |
+        echo "🌐 Configuring network settings for: ${{ github.event.inputs.network }}"
+        
+        case "${{ github.event.inputs.network }}" in
+          "celo-mainnet")
+            echo "IDENTITY_VERIFICATION_HUB_ADDRESS=0xe57F4773bd9c9d8b6Cd70431117d353298B9f5BF" >> $GITHUB_OUTPUT
+            echo "RPC_URL=https://forno.celo.org" >> $GITHUB_OUTPUT
+            echo "NETWORK_NAME=celo-mainnet" >> $GITHUB_OUTPUT
+            echo "CHAIN_ID=42220" >> $GITHUB_OUTPUT
+            echo "BLOCK_EXPLORER_URL=https://celoscan.io" >> $GITHUB_OUTPUT
+            # API key stored securely in environment for later use
+            echo "CELOSCAN_API_KEY=${{ secrets.CELOSCAN_API_KEY }}" >> $GITHUB_ENV
+            ;;
+          "celo-alfajores")
+            echo "IDENTITY_VERIFICATION_HUB_ADDRESS=0x68c931C9a534D37aa78094877F46fE46a49F1A51" >> $GITHUB_OUTPUT
+            echo "RPC_URL=https://alfajores-forno.celo-testnet.org" >> $GITHUB_OUTPUT
+            echo "NETWORK_NAME=celo-alfajores" >> $GITHUB_OUTPUT
+            echo "CHAIN_ID=44787" >> $GITHUB_OUTPUT
+            echo "BLOCK_EXPLORER_URL=https://alfajores.celoscan.io" >> $GITHUB_OUTPUT
+            # API key stored securely in environment for later use
+            echo "CELOSCAN_API_KEY=${{ secrets.CELOSCAN_API_KEY }}" >> $GITHUB_ENV
+            ;;
+        esac
+        
+        echo "✅ Network configured:"
+        echo "  Hub Address: $(echo '${{ github.event.inputs.network }}' | case ${{ github.event.inputs.network }} in celo-mainnet) echo '0xe57F4773bd9c9d8b6Cd70431117d353298B9f5BF';; celo-alfajores) echo '0x68c931C9a534D37aa78094877F46fE46a49F1A51';; esac)"
+        echo "  RPC URL: $(echo '${{ github.event.inputs.network }}' | case ${{ github.event.inputs.network }} in celo-mainnet) echo 'https://forno.celo.org';; celo-alfajores) echo 'https://alfajores-forno.celo-testnet.org';; esac)"
+        
+    - name: Setup deployer configuration
+      id: setup-deployer
+      env:
+        CUSTOM_PRIVATE_KEY: ${{ github.event.inputs.custom_deployer_private_key }}
+        DEFAULT_PRIVATE_KEY: ${{ secrets.DEFAULT_DEPLOYER_PRIVATE_KEY }}
+      run: |
+        # Determine which private key to use
+        if [[ -n "$CUSTOM_PRIVATE_KEY" ]]; then
+          echo "Using custom deployer private key"
+          PRIVATE_KEY="$CUSTOM_PRIVATE_KEY"
+        else
+          echo "Using default deployer from secrets"
+          PRIVATE_KEY="$DEFAULT_PRIVATE_KEY"
+        fi
+        
+        # Derive address from private key (without logging the private key)
+        DEPLOYER_ADDRESS=$(node -e "
+          const { ethers } = require('ethers');
+          const wallet = new ethers.Wallet('$PRIVATE_KEY');
+          console.log(wallet.address);
+        ")
+        
+        echo "DEPLOYER_ADDRESS=$DEPLOYER_ADDRESS" >> $GITHUB_OUTPUT
+        echo "Deployer address: $DEPLOYER_ADDRESS"
+        
+        # Store private key securely for later steps (not in output)
+        echo "PRIVATE_KEY=$PRIVATE_KEY" >> $GITHUB_ENV
+        
+    - name: Validate inputs
+      run: |
+        echo "🔍 Validating deployment inputs..."
+        
+        # Validate Ethereum addresses
+        validate_address() {
+          if [[ ! $1 =~ ^0x[a-fA-F0-9]{40}$ ]]; then
+            echo "❌ Invalid Ethereum address: $1"
+            exit 1
+          fi
+        }
+        
+        # Validate bytes32
+        validate_bytes32() {
+          if [[ ! $1 =~ ^0x[a-fA-F0-9]{64}$ ]]; then
+            echo "❌ Invalid bytes32 value: $1"
+            exit 1
+          fi
+        }
+        
+        # Validate scope seed
+        validate_scope() {
+          if [[ ${#1} -gt 20 ]]; then
+            echo "❌ Scope seed too long (max 20 characters): $1"
+            exit 1
+          fi
+          if [[ ! $1 =~ ^[a-z0-9\s\-_.,!?]*$ ]]; then
+            echo "❌ Invalid scope seed format (must be lowercase ASCII): $1"
+            exit 1
+          fi
+        }
+        
+        validate_address "${{ steps.setup-deployer.outputs.DEPLOYER_ADDRESS }}"
+        validate_address "${{ steps.network-config.outputs.IDENTITY_VERIFICATION_HUB_ADDRESS }}"
+        validate_address "${{ github.event.inputs.owner_address }}"
+        validate_bytes32 "${{ github.event.inputs.verification_config_id }}"
+        validate_scope "${{ github.event.inputs.scope_seed }}"
+        
+        echo "✅ All inputs validated successfully"
+        
+    - name: Calculate scope value
+      id: calculate-scope
+      env:
+        DEPLOYER_ADDRESS: ${{ steps.setup-deployer.outputs.DEPLOYER_ADDRESS }}
+        IDENTITY_VERIFICATION_HUB_ADDRESS: ${{ steps.network-config.outputs.IDENTITY_VERIFICATION_HUB_ADDRESS }}
+        OWNER_ADDRESS: ${{ github.event.inputs.owner_address }}
+        VERIFICATION_CONFIG_ID: ${{ github.event.inputs.verification_config_id }}
+        VALIDITY_PERIOD: ${{ github.event.inputs.validity_period }}
+        SCOPE_SEED: ${{ github.event.inputs.scope_seed }}
+      run: |
+        echo "🧮 Calculating scope value using CREATE2 prediction..."
+        
+        cd ts-scripts
+        npm run calculate-scope > ../scope_output.log 2>&1
+        
+        # Extract values from output
+        SCOPE_VALUE=$(grep "Scope Value:" ../scope_output.log | cut -d' ' -f3)
+        PREDICTED_ADDRESS=$(grep "Predicted Address:" ../scope_output.log | cut -d' ' -f3)
+        
+        if [[ -z "$SCOPE_VALUE" ]]; then
+          echo "❌ Failed to calculate scope value"
+          cat ../scope_output.log
+          exit 1
+        fi
+        
+        echo "SCOPE_VALUE=$SCOPE_VALUE" >> $GITHUB_OUTPUT
+        echo "PREDICTED_ADDRESS=$PREDICTED_ADDRESS" >> $GITHUB_OUTPUT
+        
+        echo "✅ Scope value calculated: $SCOPE_VALUE"
+        echo "✅ Predicted CREATE2 address: $PREDICTED_ADDRESS"
+        
+    - name: Deploy contract
+      env:
+        IDENTITY_VERIFICATION_HUB_ADDRESS: ${{ steps.network-config.outputs.IDENTITY_VERIFICATION_HUB_ADDRESS }}
+        SCOPE_VALUE: ${{ steps.calculate-scope.outputs.SCOPE_VALUE }}
+        SCOPE_SEED: ${{ github.event.inputs.scope_seed }}
+        OWNER_ADDRESS: ${{ github.event.inputs.owner_address }}
+        VALIDITY_PERIOD: ${{ github.event.inputs.validity_period }}
+        VERIFICATION_CONFIG_ID: ${{ github.event.inputs.verification_config_id }}
+      run: |
+        echo "🚀 Deploying SelfSBTV2 contract..."
+        
+        # Build the project
+        forge build
+        
+        # Prepare deployment command
+        DEPLOY_CMD="forge script script/DeployV2.s.sol:DeployV2 --rpc-url ${{ steps.network-config.outputs.RPC_URL }} --private-key $PRIVATE_KEY --broadcast"
+        
+        # Add verification if API key is provided
+        if [[ -n "$CELOSCAN_API_KEY" ]]; then
+          DEPLOY_CMD="$DEPLOY_CMD --verify --etherscan-api-key $CELOSCAN_API_KEY"
+          echo "📋 Contract verification enabled"
+        fi
+        
+        # Execute deployment
+        eval $DEPLOY_CMD
+        
+        echo "✅ Contract deployment completed!"
+        
+    - name: Create deployment summary
+      run: |
+        echo "## 🎉 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Deployment Details" >> $GITHUB_STEP_SUMMARY
+        echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| **Network** | ${{ steps.network-config.outputs.NETWORK_NAME }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Chain ID** | ${{ steps.network-config.outputs.CHAIN_ID }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Deployer** | ${{ steps.setup-deployer.outputs.DEPLOYER_ADDRESS }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Predicted Address** | ${{ steps.calculate-scope.outputs.PREDICTED_ADDRESS }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Hub Address** | ${{ steps.network-config.outputs.IDENTITY_VERIFICATION_HUB_ADDRESS }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| **RPC URL** | ${{ steps.network-config.outputs.RPC_URL }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Block Explorer** | ${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Owner** | ${{ github.event.inputs.owner_address }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Scope Seed** | ${{ github.event.inputs.scope_seed }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Scope Value** | ${{ steps.calculate-scope.outputs.SCOPE_VALUE }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Validity Period** | ${{ github.event.inputs.validity_period }} seconds |" >> $GITHUB_STEP_SUMMARY
+        echo "| **Config ID** | ${{ github.event.inputs.verification_config_id }} |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+        echo "1. Check the deployment logs above for the actual deployed contract address" >> $GITHUB_STEP_SUMMARY
+        echo "2. Verify the contract address matches the predicted address" >> $GITHUB_STEP_SUMMARY
+        echo "3. If verification was enabled, check the block explorer for verification status" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Important Notes" >> $GITHUB_STEP_SUMMARY
+        echo "- ⚠️ The actual deployed address should match the predicted address" >> $GITHUB_STEP_SUMMARY
+        echo "- 🔒 Private keys are never logged or stored" >> $GITHUB_STEP_SUMMARY
+        echo "- 📋 Contract verification may take a few minutes to complete" >> $GITHUB_STEP_SUMMARY
+        
+    - name: Save deployment artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: deployment-artifacts-${{ github.run_number }}
+        path: |
+          scope_output.log
+          broadcast/
+          deployments/
+        retention-days: 30
