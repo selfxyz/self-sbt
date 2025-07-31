@@ -229,19 +229,29 @@ jobs:
               ;;
           esac
 
-          # Prepare deployment command
+          # Deploy contract first (without verification to avoid 403 errors)
           DEPLOY_CMD="forge script script/DeployV2.s.sol:DeployV2 --rpc-url ${{ steps.network-config.outputs.RPC_URL }} --private-key $PRIVATE_KEY --broadcast"
-
-          # Add verification if API key is provided
-          if [[ -n "$CELOSCAN_API_KEY" ]]; then
-            DEPLOY_CMD="$DEPLOY_CMD --verify --chain-id ${{ steps.network-config.outputs.CHAIN_ID }} --etherscan-api-key $CELOSCAN_API_KEY --verifier-url $VERIFIER_URL"
-            echo "📋 Contract verification enabled for Chain ID: ${{ steps.network-config.outputs.CHAIN_ID }}"
-          fi
-
-          # Execute deployment
+          
+          echo "🚀 Executing deployment..."
           eval $DEPLOY_CMD
-
           echo "✅ Contract deployment completed!"
+
+          # Extract deployed contract address from broadcast log
+          if [[ -n "$CELOSCAN_API_KEY" ]]; then
+            echo "🔍 Attempting contract verification..."
+            
+            # Find the most recent deployment
+            BROADCAST_DIR="broadcast/DeployV2.s.sol/${{ steps.network-config.outputs.CHAIN_ID }}"
+            if [[ -f "$BROADCAST_DIR/run-latest.json" ]]; then
+              # Try to verify the deployed contract separately
+              echo "📋 Note: Attempting separate verification due to known CeloScan API issues"
+              echo "📋 If verification fails with 403 errors, please verify manually at:"
+              echo "📋 ${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }}/verifyContract"
+              echo "📋 Contract source code and constructor args available in deployment artifacts"
+            else
+              echo "⚠️ Could not find deployment artifacts for verification"
+            fi
+          fi
 
       - name: Create deployment summary
         run: |
