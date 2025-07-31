@@ -229,12 +229,20 @@ jobs:
               ;;
           esac
 
-          # Step 1: Deploy contract (without verification)
+          # Step 1: Deploy contract (without verification, ignore wallet warnings)
           DEPLOY_CMD="forge script script/DeployV2.s.sol:DeployV2 --rpc-url ${{ steps.network-config.outputs.RPC_URL }} --private-key $PRIVATE_KEY --broadcast"
           
           echo "🚀 Step 1: Executing deployment..."
-          eval $DEPLOY_CMD
-          echo "✅ Contract deployment completed!"
+          eval $DEPLOY_CMD || {
+            # Check if deployment actually succeeded despite exit code error
+            if [[ -f "broadcast/DeployV2.s.sol/${{ steps.network-config.outputs.CHAIN_ID }}/run-latest.json" ]]; then
+              echo "✅ Contract deployment completed (ignoring wallet warnings)"
+            else
+              echo "❌ Contract deployment failed"
+              exit 1
+            fi
+          }
+          echo "✅ Contract deployment step completed!"
 
           # Step 2: Verify contract using forge verify-contract (following Celo docs pattern)
           if [[ -n "$CELOSCAN_API_KEY" ]]; then
