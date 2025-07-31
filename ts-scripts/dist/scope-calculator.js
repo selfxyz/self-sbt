@@ -16,59 +16,11 @@
  * Alternative usage (for testing):
  *   - PREDICTED_ADDRESS: A predicted address to use for scope calculation
  */
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.hashEndpointWithScope = hashEndpointWithScope;
 exports.validateEthereumAddress = validateEthereumAddress;
 exports.validateScope = validateScope;
 exports.validateBytes32 = validateBytes32;
-const crypto = __importStar(require("crypto"));
-// Hash function for scope calculation (copied from @selfxyz/core functionality)
-function hashEndpointWithScope(endpoint, scope) {
-    const encoder = new TextEncoder();
-    const endpointBytes = encoder.encode(endpoint);
-    const scopeBytes = encoder.encode(scope);
-    // Concatenate endpoint and scope
-    const combined = new Uint8Array(endpointBytes.length + scopeBytes.length);
-    combined.set(endpointBytes);
-    combined.set(scopeBytes, endpointBytes.length);
-    // Create SHA-256 hash
-    const hash = crypto.createHash('sha256').update(combined).digest();
-    // Convert to hex string
-    return '0x' + hash.toString('hex');
-}
+const core_1 = require("@selfxyz/core");
 // Removed CREATE2 prediction logic - now handled by Foundry script
 // Load and validate environment variables
 function loadEnvironmentConfig() {
@@ -101,8 +53,8 @@ async function main() {
     console.log('📋 Configuration:');
     console.log(`   ${addressType} Address: ${config.contractAddress}`);
     console.log(`   Scope Seed: "${config.scopeSeed}"\n`);
-    // Calculate scope value using contract address
-    const scopeValue = hashEndpointWithScope(config.contractAddress, config.scopeSeed);
+    // Calculate scope value using contract address (using official @selfxyz/core implementation)
+    const scopeValue = (0, core_1.hashEndpointWithScope)(config.contractAddress, config.scopeSeed);
     console.log(`🎯 Calculated Scope Value: ${scopeValue}`);
     // Output final results for GitHub workflow parsing
     console.log(`\nResults:`);

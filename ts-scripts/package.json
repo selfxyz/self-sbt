@@ -10,6 +10,7 @@
     "start": "pnpm run calculate-scope"
   },
   "dependencies": {
+    "@selfxyz/core": "^0.0.25",
     "ethers": "^6.7.1"
   },
   "devDependencies": {

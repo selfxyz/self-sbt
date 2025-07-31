@@ -15,7 +15,6 @@
  * Alternative usage (for testing):
  *   - PREDICTED_ADDRESS: A predicted address to use for scope calculation
  */
-export declare function hashEndpointWithScope(endpoint: string, scope: string): string;
 export declare function validateEthereumAddress(addr: string): boolean;
 export declare function validateScope(scopeValue: string): boolean;
 export declare function validateBytes32(value: string): boolean;

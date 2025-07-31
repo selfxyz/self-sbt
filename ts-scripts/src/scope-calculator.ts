@@ -18,30 +18,12 @@
  */
 
 import { ethers } from 'ethers';
-import * as crypto from 'crypto';
+import { hashEndpointWithScope } from '@selfxyz/core';
 
 // Types
 interface EnvironmentConfig {
     contractAddress: string;
     scopeSeed: string;
-}
-
-// Hash function for scope calculation (copied from @selfxyz/core functionality)
-export function hashEndpointWithScope(endpoint: string, scope: string): string {
-    const encoder = new TextEncoder();
-    const endpointBytes = encoder.encode(endpoint);
-    const scopeBytes = encoder.encode(scope);
-    
-    // Concatenate endpoint and scope
-    const combined = new Uint8Array(endpointBytes.length + scopeBytes.length);
-    combined.set(endpointBytes);
-    combined.set(scopeBytes, endpointBytes.length);
-    
-    // Create SHA-256 hash
-    const hash = crypto.createHash('sha256').update(combined).digest();
-    
-    // Convert to hex string
-    return '0x' + hash.toString('hex');
 }
 
 // Removed CREATE2 prediction logic - now handled by Foundry script
@@ -85,7 +67,7 @@ async function main(): Promise<void> {
     console.log(`   ${addressType} Address: ${config.contractAddress}`);
     console.log(`   Scope Seed: "${config.scopeSeed}"\n`);
     
-    // Calculate scope value using contract address
+    // Calculate scope value using contract address (using official @selfxyz/core implementation)
     const scopeValue = hashEndpointWithScope(config.contractAddress, config.scopeSeed);
     console.log(`🎯 Calculated Scope Value: ${scopeValue}`);
     
