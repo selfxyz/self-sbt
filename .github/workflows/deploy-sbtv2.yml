@@ -257,6 +257,7 @@ jobs:
               
               if [[ -n "$CONTRACT_ADDRESS" && "$CONTRACT_ADDRESS" != "null" ]]; then
                 echo "📋 Found deployed contract at: $CONTRACT_ADDRESS"
+                echo "🔗 View on explorer: ${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }}/address/$CONTRACT_ADDRESS"
                 
                 # Determine chain name for forge verify-contract (following Celo docs)
                 case "${{ github.event.inputs.network }}" in
@@ -298,6 +299,19 @@ jobs:
         run: |
           echo "## 🎉 Deployment Successful!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Extract contract address for summary
+          BROADCAST_DIR="broadcast/DeployV2.s.sol/${{ steps.network-config.outputs.CHAIN_ID }}"
+          if [[ -f "$BROADCAST_DIR/run-latest.json" ]]; then
+            CONTRACT_ADDRESS=$(jq -r '.transactions[] | select(.contractName == "SelfSBTV2") | .contractAddress' "$BROADCAST_DIR/run-latest.json" | head -1)
+            if [[ -n "$CONTRACT_ADDRESS" && "$CONTRACT_ADDRESS" != "null" ]]; then
+              echo "### 🔗 Quick Links" >> $GITHUB_STEP_SUMMARY
+              echo "- **Contract Address**: [\`$CONTRACT_ADDRESS\`](${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }}/address/$CONTRACT_ADDRESS)" >> $GITHUB_STEP_SUMMARY
+              echo "- **View on Explorer**: [${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }}/address/$CONTRACT_ADDRESS](${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }}/address/$CONTRACT_ADDRESS)" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+          
           echo "### Deployment Details" >> $GITHUB_STEP_SUMMARY
           echo "| Parameter | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
