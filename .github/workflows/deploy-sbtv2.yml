@@ -74,6 +74,9 @@ jobs:
         with:
           version: nightly
 
+      - name: Install Foundry dependencies
+        run: forge install
+
       - name: Install TypeScript dependencies
         run: |
           cd ts-scripts
