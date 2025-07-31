@@ -6,8 +6,8 @@
   "scripts": {
     "build": "tsc",
     "dev": "ts-node src/scope-calculator.ts",
-    "calculate-scope": "npm run build && node dist/scope-calculator.js",
-    "start": "npm run calculate-scope"
+    "calculate-scope": "pnpm run build && node dist/scope-calculator.js",
+    "start": "pnpm run calculate-scope"
   },
   "dependencies": {
     "ethers": "^6.7.1"

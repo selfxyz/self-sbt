@@ -49,8 +49,25 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "18"
-          cache: "npm"
-          cache-dependency-path: ts-scripts/package-lock.json
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+          run_install: false
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('ts-scripts/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
@@ -60,8 +77,8 @@ jobs:
       - name: Install TypeScript dependencies
         run: |
           cd ts-scripts
-          npm ci
-          npm run build
+          pnpm install --frozen-lockfile
+          pnpm run build
 
       - name: Configure network settings
         id: network-config
@@ -174,7 +191,7 @@ jobs:
           echo "🧮 Calculating scope value using CREATE2 prediction..."
 
           cd ts-scripts
-          npm run calculate-scope > ../scope_output.log 2>&1
+          pnpm run calculate-scope > ../scope_output.log 2>&1
 
           # Extract values from output
           SCOPE_VALUE=$(grep "Scope Value:" ../scope_output.log | cut -d' ' -f3)
