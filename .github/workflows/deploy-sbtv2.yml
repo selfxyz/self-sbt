@@ -3,6 +3,7 @@ name: Deploy SelfSBTV2
 on:
   workflow_dispatch:
     inputs:
+      # Required parameters (must be provided)
       network:
         description: "Network to deploy on"
         required: true
@@ -11,10 +12,6 @@ on:
           - "celo-mainnet"
           - "celo-alfajores"
         default: "celo-alfajores"
-      custom_deployer_private_key:
-        description: "Custom deployer private key (optional - uses default deployer if not provided)"
-        required: false
-        type: string
       owner_address:
         description: "Address that will own the deployed contract"
         required: true
@@ -26,6 +23,12 @@ on:
       scope_seed:
         description: "Scope identifier used in your frontend Self SDK (max 20 chars, lowercase)"
         required: true
+        type: string
+      
+      # Optional parameters (have defaults or fallbacks)
+      custom_deployer_private_key:
+        description: "Custom deployer private key (optional - uses default deployer if not provided)"
+        required: false
         type: string
       validity_period:
         description: "Token validity period in seconds (default: 15552000 = 180 days)"
