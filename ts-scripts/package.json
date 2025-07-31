@@ -1,0 +1,22 @@
+{
+  "name": "sbtv2-deployment-tools",
+  "version": "1.0.0",
+  "description": "Scope calculator for SelfPassportSBTV2 CREATE2 deployments",
+  "main": "dist/scope-calculator.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/scope-calculator.ts",
+    "calculate-scope": "npm run build && node dist/scope-calculator.js",
+    "start": "npm run calculate-scope"
+  },
+  "dependencies": {
+    "ethers": "^6.7.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.5.0",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.1.6"
+  },
+  "keywords": ["ethereum", "create2", "self-protocol", "sbt", "deployment", "typescript"],
+  "license": "MIT"
+}
