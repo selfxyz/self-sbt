@@ -22,7 +22,7 @@ on:
         type: string
         default: "0x7b6436b0c98f62380866d9432c2af0ee08ce16a171bda6951aecd95ee1307d61"
       scope_seed:
-        description: "Scope identifier used in your frontend Self SDK (max 20 chars, lowercase)"
+        description: "Scope identifier used in your frontend Self SDK"
         required: true
         type: string
       
@@ -126,7 +126,7 @@ jobs:
           fi
 
           # Derive address from private key (without logging the private key)
-          DEPLOYER_ADDRESS=$(node -e "
+          DEPLOYER_ADDRESS=$(cd ts-scripts && node -e "
             const { ethers } = require('ethers');
             const wallet = new ethers.Wallet('$PRIVATE_KEY');
             console.log(wallet.address);
@@ -158,23 +158,10 @@ jobs:
             fi
           }
 
-          # Validate scope seed
-          validate_scope() {
-            if [[ ${#1} -gt 20 ]]; then
-              echo "❌ Scope seed too long (max 20 characters): $1"
-              exit 1
-            fi
-            if [[ ! $1 =~ ^[a-z0-9\s\-_.,!?]*$ ]]; then
-              echo "❌ Invalid scope seed format (must be lowercase ASCII): $1"
-              exit 1
-            fi
-          }
-
           validate_address "${{ steps.setup-deployer.outputs.DEPLOYER_ADDRESS }}"
           validate_address "${{ steps.network-config.outputs.IDENTITY_VERIFICATION_HUB_ADDRESS }}"
           validate_address "${{ github.event.inputs.owner_address }}"
           validate_bytes32 "${{ github.event.inputs.verification_config_id }}"
-          validate_scope "${{ github.event.inputs.scope_seed }}"
 
           echo "✅ All inputs validated successfully"
 
@@ -193,9 +180,9 @@ jobs:
           cd ts-scripts
           pnpm run calculate-scope > ../scope_output.log 2>&1
 
-          # Extract values from output
-          SCOPE_VALUE=$(grep "Scope Value:" ../scope_output.log | cut -d' ' -f3)
-          PREDICTED_ADDRESS=$(grep "Predicted Address:" ../scope_output.log | cut -d' ' -f3)
+          # Extract values from output (use tail to get the clean output line, not the emoji line)
+          SCOPE_VALUE=$(grep "Scope Value:" ../scope_output.log | tail -n1 | cut -d' ' -f3)
+          PREDICTED_ADDRESS=$(grep "Predicted Address:" ../scope_output.log | tail -n1 | cut -d' ' -f3)
 
           if [[ -z "$SCOPE_VALUE" ]]; then
             echo "❌ Failed to calculate scope value"
