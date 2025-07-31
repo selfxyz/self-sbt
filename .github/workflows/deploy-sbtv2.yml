@@ -229,6 +229,7 @@ jobs:
           echo "✅ Contract deployment completed!"
 
       - name: Calculate and set actual scope
+        id: calculate-scope
         env:
           CONTRACT_ADDRESS: ${{ steps.deploy-contract.outputs.CONTRACT_ADDRESS }}
           SCOPE_SEED: ${{ github.event.inputs.scope_seed }}
@@ -250,6 +251,9 @@ jobs:
           fi
 
           echo "✅ Calculated scope value: $SCOPE_VALUE"
+          
+          # Save scope value as step output
+          echo "SCOPE_VALUE=$SCOPE_VALUE" >> $GITHUB_OUTPUT
 
           # Call setScope function on the deployed contract
           echo "🔧 Setting scope value on deployed contract..."
@@ -324,6 +328,7 @@ jobs:
           echo "| **Block Explorer** | ${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Owner** | ${{ github.event.inputs.owner_address }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Scope Seed** | ${{ github.event.inputs.scope_seed }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Scope Value** | ${{ steps.calculate-scope.outputs.SCOPE_VALUE }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Placeholder Scope** | ${{ github.event.inputs.placeholder_scope }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Validity Period** | ${{ github.event.inputs.validity_period }} seconds |" >> $GITHUB_STEP_SUMMARY
           echo "| **Config ID** | ${{ github.event.inputs.verification_config_id }} |" >> $GITHUB_STEP_SUMMARY
