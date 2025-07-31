@@ -20,6 +20,7 @@ on:
         description: "Verification configuration ID (bytes32 format: 0x...)"
         required: true
         type: string
+        default: "0x7b6436b0c98f62380866d9432c2af0ee08ce16a171bda6951aecd95ee1307d61"
       scope_seed:
         description: "Scope identifier used in your frontend Self SDK (max 20 chars, lowercase)"
         required: true
