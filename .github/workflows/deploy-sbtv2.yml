@@ -259,9 +259,19 @@ jobs:
                     ;;
                 esac
                 
-                # Use forge verify-contract as per Celo documentation
-                echo "📋 Executing: forge verify-contract --chain-id $CHAIN_NAME $CONTRACT_ADDRESS src/SelfSBTV2.sol:SelfSBTV2 --watch"
-                forge verify-contract --chain-id $CHAIN_NAME $CONTRACT_ADDRESS src/SelfSBTV2.sol:SelfSBTV2 --watch || {
+                # Encode constructor arguments for verification
+                CONSTRUCTOR_ARGS=$(cast abi-encode "constructor(address,uint256,address,uint256,bytes32)" \
+                  $IDENTITY_VERIFICATION_HUB_ADDRESS \
+                  $SCOPE_VALUE \
+                  $OWNER_ADDRESS \
+                  $VALIDITY_PERIOD \
+                  $VERIFICATION_CONFIG_ID)
+                
+                echo "📋 Constructor args: $CONSTRUCTOR_ARGS"
+                
+                # Use forge verify-contract with constructor arguments
+                echo "📋 Executing: forge verify-contract --constructor-args $CONSTRUCTOR_ARGS --chain-id $CHAIN_NAME $CONTRACT_ADDRESS src/SelfSBTV2.sol:SelfSBTV2 --watch"
+                forge verify-contract --constructor-args $CONSTRUCTOR_ARGS --chain-id $CHAIN_NAME $CONTRACT_ADDRESS src/SelfSBTV2.sol:SelfSBTV2 --watch || {
                   echo "⚠️ Verification failed. You can verify manually at:"
                   echo "📋 ${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }}/verifyContract"
                   echo "📋 Contract Address: $CONTRACT_ADDRESS"
