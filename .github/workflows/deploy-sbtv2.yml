@@ -74,6 +74,9 @@ jobs:
         with:
           version: nightly
 
+      - name: Install root dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Install Foundry dependencies
         run: forge install
 
@@ -199,6 +202,12 @@ jobs:
           echo "✅ Scope value calculated: $SCOPE_VALUE"
           echo "✅ Predicted CREATE2 address: $PREDICTED_ADDRESS"
 
+      - name: Build contracts
+        run: |
+          echo "🔨 Building Solidity contracts..."
+          forge build
+          echo "✅ Contract compilation successful!"
+
       - name: Deploy contract
         env:
           IDENTITY_VERIFICATION_HUB_ADDRESS: ${{ steps.network-config.outputs.IDENTITY_VERIFICATION_HUB_ADDRESS }}
@@ -209,9 +218,6 @@ jobs:
           VERIFICATION_CONFIG_ID: ${{ github.event.inputs.verification_config_id }}
         run: |
           echo "🚀 Deploying SelfSBTV2 contract..."
-
-          # Build the project
-          forge build
 
           # Prepare deployment command
           DEPLOY_CMD="forge script script/DeployV2.s.sol:DeployV2 --rpc-url ${{ steps.network-config.outputs.RPC_URL }} --private-key $PRIVATE_KEY --broadcast"
