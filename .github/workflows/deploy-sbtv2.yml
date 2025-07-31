@@ -229,25 +229,47 @@ jobs:
               ;;
           esac
 
-          # Deploy contract first (without verification to avoid 403 errors)
+          # Step 1: Deploy contract (without verification)
           DEPLOY_CMD="forge script script/DeployV2.s.sol:DeployV2 --rpc-url ${{ steps.network-config.outputs.RPC_URL }} --private-key $PRIVATE_KEY --broadcast"
           
-          echo "🚀 Executing deployment..."
+          echo "🚀 Step 1: Executing deployment..."
           eval $DEPLOY_CMD
           echo "✅ Contract deployment completed!"
 
-          # Extract deployed contract address from broadcast log
+          # Step 2: Verify contract using forge verify-contract (following Celo docs pattern)
           if [[ -n "$CELOSCAN_API_KEY" ]]; then
-            echo "🔍 Attempting contract verification..."
+            echo "🔍 Step 2: Verifying contract on CeloScan..."
             
-            # Find the most recent deployment
+            # Find the most recent deployment and extract contract address
             BROADCAST_DIR="broadcast/DeployV2.s.sol/${{ steps.network-config.outputs.CHAIN_ID }}"
             if [[ -f "$BROADCAST_DIR/run-latest.json" ]]; then
-              # Try to verify the deployed contract separately
-              echo "📋 Note: Attempting separate verification due to known CeloScan API issues"
-              echo "📋 If verification fails with 403 errors, please verify manually at:"
-              echo "📋 ${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }}/verifyContract"
-              echo "📋 Contract source code and constructor args available in deployment artifacts"
+              # Extract the deployed contract address from the JSON
+              CONTRACT_ADDRESS=$(jq -r '.transactions[] | select(.contractName == "SelfSBTV2") | .contractAddress' "$BROADCAST_DIR/run-latest.json" | head -1)
+              
+              if [[ -n "$CONTRACT_ADDRESS" && "$CONTRACT_ADDRESS" != "null" ]]; then
+                echo "📋 Found deployed contract at: $CONTRACT_ADDRESS"
+                
+                # Determine chain name for forge verify-contract (following Celo docs)
+                case "${{ github.event.inputs.network }}" in
+                  "celo-mainnet")
+                    CHAIN_NAME="celo"
+                    ;;
+                  "celo-alfajores")
+                    CHAIN_NAME="celo-alfajores"
+                    ;;
+                esac
+                
+                # Use forge verify-contract as per Celo documentation
+                echo "📋 Executing: forge verify-contract --chain-id $CHAIN_NAME $CONTRACT_ADDRESS src/SelfSBTV2.sol:SelfSBTV2 --watch"
+                forge verify-contract --chain-id $CHAIN_NAME $CONTRACT_ADDRESS src/SelfSBTV2.sol:SelfSBTV2 --watch || {
+                  echo "⚠️ Verification failed. You can verify manually at:"
+                  echo "📋 ${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }}/verifyContract"
+                  echo "📋 Contract Address: $CONTRACT_ADDRESS"
+                  echo "📋 Constructor arguments available in: $BROADCAST_DIR/run-latest.json"
+                }
+              else
+                echo "⚠️ Could not extract contract address from deployment logs"
+              fi
             else
               echo "⚠️ Could not find deployment artifacts for verification"
             fi
