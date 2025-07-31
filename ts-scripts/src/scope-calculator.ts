@@ -24,11 +24,7 @@ import * as crypto from 'crypto';
 
 // Types
 interface EnvironmentConfig {
-    deployerAddress: string;
-    hubAddress: string;
-    ownerAddress: string;
-    verificationConfigId: string;
-    validityPeriod: string;
+    predictedAddress: string;
     scopeSeed: string;
 }
 
@@ -50,65 +46,16 @@ export function hashEndpointWithScope(endpoint: string, scope: string): string {
     return '0x' + hash.toString('hex');
 }
 
-// CREATE2 address prediction matching Foundry script logic
-export function predictCreate2Address(deployerAddress: string, salt: string, initCodeHash: string): string {
-    const deployerBytes = ethers.getBytes(deployerAddress);
-    const saltBytes = ethers.getBytes(salt);
-    const initCodeHashBytes = ethers.getBytes(initCodeHash);
-    
-    // CREATE2 formula: keccak256(0xff ++ deployer_address ++ salt ++ keccak256(init_code))
-    const data = ethers.concat([
-        '0xff',
-        deployerBytes,
-        saltBytes,
-        initCodeHashBytes
-    ]);
-    
-    const hash = ethers.keccak256(data);
-    return ethers.getAddress('0x' + hash.slice(-40));
-}
-
-// Generate salt matching Foundry script logic
-export function generateSalt(scopeSeed: string): string {
-    return ethers.keccak256(ethers.toUtf8Bytes(`SelfSBTV2_${scopeSeed}`));
-}
-
-// Get the init code hash for SelfSBTV2
-export function getInitCodeHash(constructorArgs: [string, string, string, string, string]): string {
-    // Note: This is a simplified approach. For production, you'd need the actual
-    // compiled bytecode from Foundry.
-    console.log('⚠️  Warning: Using simplified init code hash calculation.');
-    console.log('   For production use, get the actual bytecode from forge.');
-    
-    // Encode constructor arguments
-    const abiCoder = ethers.AbiCoder.defaultAbiCoder();
-    const encodedArgs = abiCoder.encode(
-        ['address', 'uint256', 'address', 'uint256', 'bytes32'],
-        constructorArgs
-    );
-    
-    // Placeholder: In reality, you'd get this from: forge inspect SelfSBTV2 bytecode
-    const mockBytecode = '0x608060405234801561001057600080fd5b50'; // Placeholder
-    const initCode = mockBytecode + encodedArgs.slice(2);
-    
-    return ethers.keccak256(initCode);
-}
+// Removed CREATE2 prediction logic - now handled by Foundry script
 
 // Load and validate environment variables
 function loadEnvironmentConfig(): EnvironmentConfig {
-    const deployerAddress = process.env.DEPLOYER_ADDRESS;
-    const hubAddress = process.env.IDENTITY_VERIFICATION_HUB_ADDRESS;
-    const ownerAddress = process.env.OWNER_ADDRESS;
-    const verificationConfigId = process.env.VERIFICATION_CONFIG_ID;
-    const validityPeriod = process.env.VALIDITY_PERIOD || (180 * 24 * 60 * 60).toString(); // 180 days
+    const predictedAddress = process.env.PREDICTED_ADDRESS;
     const scopeSeed = process.env.SCOPE_SEED;
     
     // Validate required environment variables
     const required: Record<string, string | undefined> = {
-        'DEPLOYER_ADDRESS': deployerAddress,
-        'IDENTITY_VERIFICATION_HUB_ADDRESS': hubAddress,
-        'OWNER_ADDRESS': ownerAddress,
-        'VERIFICATION_CONFIG_ID': verificationConfigId,
+        'PREDICTED_ADDRESS': predictedAddress,
         'SCOPE_SEED': scopeSeed
     };
     
@@ -120,11 +67,7 @@ function loadEnvironmentConfig(): EnvironmentConfig {
     }
     
     return {
-        deployerAddress: deployerAddress!,
-        hubAddress: hubAddress!,
-        ownerAddress: ownerAddress!,
-        verificationConfigId: verificationConfigId!,
-        validityPeriod,
+        predictedAddress: predictedAddress!,
         scopeSeed: scopeSeed!
     };
 }
@@ -136,44 +79,21 @@ async function main(): Promise<void> {
     const config = loadEnvironmentConfig();
     
     console.log('📋 Configuration:');
-    console.log(`   Deployer: ${config.deployerAddress}`);
-    console.log(`   Hub Address: ${config.hubAddress}`);
-    console.log(`   Owner: ${config.ownerAddress}`);
-    console.log(`   Verification Config ID: ${config.verificationConfigId}`);
-    console.log(`   Validity Period: ${config.validityPeriod} seconds`);
+    console.log(`   Predicted Address: ${config.predictedAddress}`);
     console.log(`   Scope Seed: "${config.scopeSeed}"\n`);
     
-    // Step 1: Generate salt (same as Foundry script)
-    const salt = generateSalt(config.scopeSeed);
-    console.log(`🧂 Generated Salt: ${salt}`);
-    
-    // Step 2: Predict CREATE2 address
-    const constructorArgs: [string, string, string, string, string] = [
-        config.hubAddress,
-        '0x0000000000000000000000000000000000000000000000000000000000000000', // Placeholder scope
-        config.ownerAddress,
-        config.validityPeriod,
-        config.verificationConfigId
-    ];
-    
-    const initCodeHash = getInitCodeHash(constructorArgs);
-    const predictedAddress = predictCreate2Address(config.deployerAddress, salt, initCodeHash);
-    
-    console.log(`🔮 Predicted CREATE2 Address: ${predictedAddress}`);
-    
-    // Step 3: Calculate scope value
-    const scopeValue = hashEndpointWithScope(predictedAddress, config.scopeSeed);
+    // Calculate scope value using predicted address from Foundry
+    const scopeValue = hashEndpointWithScope(config.predictedAddress, config.scopeSeed);
     console.log(`🎯 Calculated Scope Value: ${scopeValue}`);
     
-    // Step 4: Output final results for GitHub workflow parsing
+    // Output final results for GitHub workflow parsing
     console.log(`\nResults:`);
     console.log(`Scope Value: ${scopeValue}`);
-    console.log(`Predicted Address: ${predictedAddress}`);
-    console.log(`Salt: ${salt}`);
+    console.log(`Predicted Address: ${config.predictedAddress}`);
     
     console.log(`\n🚀 Ready for Foundry Deployment!`);
-    console.log(`   The Foundry script will use CREATE2 with the same salt to deploy to: ${predictedAddress}`);
-    console.log(`   Make sure to set SCOPE_VALUE=${scopeValue} in your environment.`);
+    console.log(`   The Foundry script will deploy to the predicted address: ${config.predictedAddress}`);
+    console.log(`   Using calculated scope value: ${scopeValue}`);
 }
 
 // Validation functions

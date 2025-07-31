@@ -171,24 +171,46 @@ jobs:
 
           echo "✅ All inputs validated successfully"
 
-      - name: Calculate scope value
-        id: calculate-scope
+      - name: Predict CREATE2 address
+        id: predict-address
         env:
-          DEPLOYER_ADDRESS: ${{ steps.setup-deployer.outputs.DEPLOYER_ADDRESS }}
           IDENTITY_VERIFICATION_HUB_ADDRESS: ${{ steps.network-config.outputs.IDENTITY_VERIFICATION_HUB_ADDRESS }}
           OWNER_ADDRESS: ${{ github.event.inputs.owner_address }}
           VERIFICATION_CONFIG_ID: ${{ github.event.inputs.verification_config_id }}
           VALIDITY_PERIOD: ${{ github.event.inputs.validity_period }}
           SCOPE_SEED: ${{ github.event.inputs.scope_seed }}
+          ETH_FROM: ${{ steps.setup-deployer.outputs.DEPLOYER_ADDRESS }}
         run: |
-          echo "🧮 Calculating scope value using CREATE2 prediction..."
+          echo "🔮 Predicting CREATE2 address using Foundry..."
+          
+          # Use Foundry's native CREATE2 prediction from DeployV2 script
+          forge script script/DeployV2.s.sol:DeployV2 --sig "predictAddress()" > prediction_output.log 2>&1
+          
+          # Extract predicted address from output (handle potential whitespace)
+          PREDICTED_ADDRESS=$(grep "PREDICTED_ADDRESS:" prediction_output.log | awk '{print $2}')
+          
+          if [[ -z "$PREDICTED_ADDRESS" ]]; then
+            echo "❌ Failed to predict address"
+            cat prediction_output.log
+            exit 1
+          fi
+          
+          echo "PREDICTED_ADDRESS=$PREDICTED_ADDRESS" >> $GITHUB_OUTPUT
+          echo "✅ Predicted CREATE2 address: $PREDICTED_ADDRESS"
+
+      - name: Calculate scope value
+        id: calculate-scope
+        env:
+          PREDICTED_ADDRESS: ${{ steps.predict-address.outputs.PREDICTED_ADDRESS }}
+          SCOPE_SEED: ${{ github.event.inputs.scope_seed }}
+        run: |
+          echo "🧮 Calculating scope value using predicted address..."
 
           cd ts-scripts
           pnpm run calculate-scope > ../scope_output.log 2>&1
 
-          # Extract values from output (use tail to get the clean output line, not the emoji line)
+          # Extract scope value from output
           SCOPE_VALUE=$(grep "Scope Value:" ../scope_output.log | tail -n1 | cut -d' ' -f3)
-          PREDICTED_ADDRESS=$(grep "Predicted Address:" ../scope_output.log | tail -n1 | cut -d' ' -f3)
 
           if [[ -z "$SCOPE_VALUE" ]]; then
             echo "❌ Failed to calculate scope value"
@@ -197,10 +219,7 @@ jobs:
           fi
 
           echo "SCOPE_VALUE=$SCOPE_VALUE" >> $GITHUB_OUTPUT
-          echo "PREDICTED_ADDRESS=$PREDICTED_ADDRESS" >> $GITHUB_OUTPUT
-
           echo "✅ Scope value calculated: $SCOPE_VALUE"
-          echo "✅ Predicted CREATE2 address: $PREDICTED_ADDRESS"
 
       - name: Build contracts
         run: |
@@ -318,7 +337,7 @@ jobs:
           echo "| **Network** | ${{ steps.network-config.outputs.NETWORK_NAME }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Chain ID** | ${{ steps.network-config.outputs.CHAIN_ID }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Deployer** | ${{ steps.setup-deployer.outputs.DEPLOYER_ADDRESS }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Predicted Address** | ${{ steps.calculate-scope.outputs.PREDICTED_ADDRESS }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Predicted Address** | ${{ steps.predict-address.outputs.PREDICTED_ADDRESS }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Hub Address** | ${{ steps.network-config.outputs.IDENTITY_VERIFICATION_HUB_ADDRESS }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **RPC URL** | ${{ steps.network-config.outputs.RPC_URL }} |" >> $GITHUB_STEP_SUMMARY
           echo "| **Block Explorer** | ${{ steps.network-config.outputs.BLOCK_EXPLORER_URL }} |" >> $GITHUB_STEP_SUMMARY

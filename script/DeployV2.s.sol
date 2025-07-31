@@ -13,6 +13,38 @@ contract DeployV2 is BaseScript {
     error OwnerMismatch();
     error ValidityPeriodMismatch();
     error ConfigIdMismatch();
+
+    /// @notice Predict the CREATE2 address for SelfSBTV2 deployment
+    /// @return predictedAddress The predicted contract address
+    /// @dev Uses the same parameters and logic as the actual deployment
+    function predictAddress() public view returns (address predictedAddress) {
+        address identityVerificationHubAddress = vm.envAddress("IDENTITY_VERIFICATION_HUB_ADDRESS");
+        address owner = vm.envOr("OWNER_ADDRESS", broadcaster);
+        uint256 validityPeriod = vm.envOr("VALIDITY_PERIOD", uint256(180 days));
+        bytes32 verificationConfigId = vm.envBytes32("VERIFICATION_CONFIG_ID");
+        string memory scopeSeed = vm.envString("SCOPE_SEED");
+
+        // Generate deterministic salt from scope seed (same as deployment)
+        bytes32 salt = keccak256(abi.encodePacked("SelfSBTV2_", scopeSeed));
+
+        // Create constructor arguments (using placeholder scope value for prediction)
+        bytes memory constructorArgs = abi.encode(
+            identityVerificationHubAddress,
+            uint256(0), // Placeholder scope value - will be calculated later
+            owner,
+            validityPeriod,
+            verificationConfigId
+        );
+
+        // Get the creation code (bytecode + constructor args)
+        bytes memory creationCode = abi.encodePacked(type(SelfSBTV2).creationCode, constructorArgs);
+
+        // Use Foundry's native CREATE2 address prediction
+        predictedAddress = vm.computeCreate2Address(salt, keccak256(creationCode), broadcaster);
+
+        // Output for workflow parsing
+        console.log("PREDICTED_ADDRESS:", predictedAddress);
+    }
     /// @notice Main deployment function using CREATE2 for deterministic address
     /// @return sbt The deployed SelfSBTV2 contract instance
     /// @dev Requires the following environment variables:
