@@ -216,6 +216,7 @@ jobs:
           OWNER_ADDRESS: ${{ github.event.inputs.owner_address }}
           VALIDITY_PERIOD: ${{ github.event.inputs.validity_period }}
           VERIFICATION_CONFIG_ID: ${{ github.event.inputs.verification_config_id }}
+          ETH_FROM: ${{ steps.setup-deployer.outputs.DEPLOYER_ADDRESS }}
         run: |
           echo "🚀 Deploying SelfSBTV2 contract..."
 
