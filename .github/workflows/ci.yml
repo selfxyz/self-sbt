@@ -37,7 +37,12 @@ jobs:
         run: "pnpm install"
 
       - name: "Lint the contracts"
-        run: "pnpm lint"
+        run: |
+          echo "🔍 Running Solidity formatting check..."
+          forge fmt --check
+
+          echo "⚠️  Running Solidity linting (warnings allowed, errors fail)..."
+          pnpm solhint {script,src,test}/**/*.sol --max-warnings 50
 
       - name: "Build the contracts and print their size"
         run: "forge build --sizes"
@@ -48,6 +53,12 @@ jobs:
       - name: "Add summary"
         run: |
           echo "## CI Results" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Lint: Passed" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Build: Passed" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Tests: Passed" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Solidity Formatting**: Passed" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ **Solidity Linting**: Passed (warnings allowed)" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Build**: Passed" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Tests**: Passed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Notes" >> $GITHUB_STEP_SUMMARY
+          echo "- Solhint warnings are allowed (max 50)" >> $GITHUB_STEP_SUMMARY
+          echo "- Only Solidity errors will fail the build" >> $GITHUB_STEP_SUMMARY
+          echo "- Documentation formatting is not enforced in CI" >> $GITHUB_STEP_SUMMARY

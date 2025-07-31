@@ -8,6 +8,11 @@ import { console } from "forge-std/console.sol";
 /// @title DeployV2
 /// @notice Deployment script for SelfSBTV2 contract using CREATE2
 contract DeployV2 is BaseScript {
+    // Custom errors for deployment verification
+    error DeploymentFailed();
+    error OwnerMismatch();
+    error ValidityPeriodMismatch();
+    error ConfigIdMismatch();
     /// @notice Main deployment function using CREATE2 for deterministic address
     /// @return sbt The deployed SelfSBTV2 contract instance
     /// @dev Requires the following environment variables:
@@ -18,6 +23,7 @@ contract DeployV2 is BaseScript {
     ///      Optional environment variables:
     ///      - OWNER_ADDRESS: Contract owner (defaults to broadcaster)
     ///      - VALIDITY_PERIOD: Token validity period in seconds (defaults to 180 days)
+
     function run() public broadcast returns (SelfSBTV2 sbt) {
         address identityVerificationHubAddress = vm.envAddress("IDENTITY_VERIFICATION_HUB_ADDRESS");
         uint256 scopeValue = vm.envUint("SCOPE_VALUE");
@@ -30,12 +36,8 @@ contract DeployV2 is BaseScript {
         bytes32 salt = keccak256(abi.encodePacked("SelfSBTV2_", scopeSeed));
 
         // Deploy the contract using CREATE2
-        sbt = new SelfSBTV2{salt: salt}(
-            identityVerificationHubAddress,
-            scopeValue,
-            owner,
-            validityPeriod,
-            verificationConfigId
+        sbt = new SelfSBTV2{ salt: salt }(
+            identityVerificationHubAddress, scopeValue, owner, validityPeriod, verificationConfigId
         );
 
         // Log deployment information
@@ -47,13 +49,13 @@ contract DeployV2 is BaseScript {
         console.log("Owner:", owner);
         console.log("Validity Period (seconds):", validityPeriod);
         console.log("Verification Config ID:", vm.toString(verificationConfigId));
-        
+
         // Verify deployment was successful
-        require(address(sbt) != address(0), "Deployment failed: contract address is zero");
-        require(sbt.owner() == owner, "Deployment failed: owner mismatch");
-        require(sbt.getValidityPeriod() == validityPeriod, "Deployment failed: validity period mismatch");
-        require(sbt.verificationConfigId() == verificationConfigId, "Deployment failed: verification config ID mismatch");
-        
+        if (address(sbt) == address(0)) revert DeploymentFailed();
+        if (sbt.owner() != owner) revert OwnerMismatch();
+        if (sbt.getValidityPeriod() != validityPeriod) revert ValidityPeriodMismatch();
+        if (sbt.verificationConfigId() != verificationConfigId) revert ConfigIdMismatch();
+
         console.log("Deployment verification completed successfully!");
     }
 }

@@ -1,4 +1,4 @@
-# SelfPassportSBTV1
+# SelfSBTV2
 
 Soulbound Token (SBT) contract implementing Self's identity verification system. Designed with the **one dapp ↔ one
 SBT** model where each dApp deploys their own SBT contract for isolated, privacy-preserving identity verification.
@@ -7,7 +7,7 @@ SBT** model where each dApp deploys their own SBT contract for isolated, privacy
 
 ```bash
 # Clone and setup
-git clone <repository-url>
+git clone https://github.com/selfxyz/self-sbt.git
 cd self-sbt
 forge install && pnpm install
 
@@ -15,8 +15,8 @@ forge install && pnpm install
 forge build
 forge test
 
-# Deploy (configure .env first)
-forge script script/Deploy.s.sol --rpc-url $RPC_URL --private-key $PRIVATE_KEY --broadcast
+# Deploy using automated pipeline
+./deploy.sh
 ```
 
 ## Privacy-First Architecture
@@ -68,7 +68,7 @@ graph TD
     D -->|No| F[MINT New SBT]
     D -->|Yes| G[UPDATE Expiry]
 
-    E -->|No| H[REVERT]
+    E -->|No| H[MINT New SBT]
     E -->|Yes| I{Owner Match?}
 
     I -->|Yes| J[UPDATE Expiry]
@@ -79,12 +79,19 @@ graph TD
 
 The contract handles four scenarios based on nullifier usage and receiver SBT ownership:
 
-| Nullifier Status | Receiver Has SBT | Action             | Description                                    |
-| ---------------- | ---------------- | ------------------ | ---------------------------------------------- |
-| **NEW**          | **NO**           | **🟢 MINT**        | First-time mint: Create new SBT for receiver   |
-| **NEW**          | **YES**          | **🟡 UPDATE**      | Edge case: Different passport for same address |
-| **USED**         | **NO**           | **🔴 REVERT**      | Invalid: Nullifier already registered          |
-| **USED**         | **YES**          | **🔍 CHECK OWNER** | Verify if nullifier owner matches receiver     |
+| Nullifier Status | Receiver Has SBT | Action                | Description                                    |
+| ---------------- | ---------------- | --------------------- | ---------------------------------------------- |
+| **NEW**          | **NO**           | **🟢 MINT**           | First-time mint: Create new SBT for receiver   |
+| **NEW**          | **YES**          | **🟡 UPDATE**         | Edge case: Different passport for same address |
+| **USED**         | **NO**           | **🔍 RECOVER/REVERT** | Recover burned token or revert if still active |
+| **USED**         | **YES**          | **🔍 CHECK OWNER**    | Verify if nullifier owner matches receiver     |
+
+### Case 3 Breakdown
+
+| Token Owner      | Action         | Description                                 |
+| ---------------- | -------------- | ------------------------------------------- |
+| **address(0)**   | **🟢 RECOVER** | Token was burned, recover to new address    |
+| **Active owner** | **🔴 REVERT**  | Token still active, ask admin to burn first |
 
 ### Case 4 Breakdown
 
@@ -93,15 +100,83 @@ The contract handles four scenarios based on nullifier usage and receiver SBT ow
 | **Same as receiver**        | Any      | **🟡 UPDATE** | Valid: Same user refreshing with their nullifier     |
 | **Different from receiver** | Any      | **🔴 REVERT** | Invalid: User trying to use someone else's nullifier |
 
+## Recovery Workflows
+
+The SBT contract supports two distinct recovery scenarios through different mechanisms:
+
+### Lost Passport Recovery ✅
+
+**Scenario**: User loses passport but retains wallet access  
+**Solution**: Direct re-verification (no admin action needed)
+
+1. User obtains new passport (generates new nullifier)
+2. User proves identity with new nullifier to same wallet
+3. **Case 2 triggers**: NEW nullifier + HAS SBT = update existing token expiry
+
+### Lost Wallet Recovery ✅
+
+**Scenario**: User loses wallet access but retains same passport  
+**Solution**: Admin burn + token recovery
+
+1. User reports lost wallet to admin
+2. Admin calls `burnSBT(tokenId)` to burn existing SBT
+3. User proves identity with same nullifier to new wallet
+4. **Case 3 triggers**: USED nullifier + NO SBT + burned token = recovery
+5. Same token ID gets minted to new address
+
+### Key Design Features
+
+- **Permanent Nullifier Binding**: Each nullifier permanently maps to one token ID throughout entire lifecycle
+- **Admin-Mediated Recovery**: All recovery requires explicit admin intervention for security
+- **Token ID Persistence**: Lost wallet recovery preserves original token ID
+- **Automatic Prevention**: Active tokens cannot be hijacked (Case 3 reverts if token still owned)
+
+### Recovery Commands
+
+```solidity
+// Admin burns user's SBT for recovery
+sbtContract.burnSBT(tokenId);
+
+// Check if nullifier can be recovered
+bool canRecover = sbtContract.isNullifierUsed(nullifier) &&
+                  sbtContract.getTokenIdByAddress(userAddress) == 0;
+```
+
+### Security Considerations
+
+**Known Limitation: Nullifier Ambiguity Attack**
+
+Due to the zero-knowledge nature of the system, there is no cryptographic way to distinguish between:
+
+- Same person renewing expired passport (legitimate Case 2)
+- Different person targeting existing wallet (potential attack)
+
+Both scenarios result in multiple nullifiers mapping to the same token ID. This creates a theoretical attack vector
+where:
+
+1. Attacker triggers Case 2 to link their nullifier to victim's token
+2. Attacker requests admin to burn the token
+3. Attacker recovers the token to their own wallet via Case 3
+
+**Mitigation Strategies:**
+
+- **Admin Due Diligence**: Implement robust identity verification before processing burn requests
+- **User Education**: Document that sharing wallet addresses reduces security
+- **Monitoring**: Track unusual patterns in Case 2 triggers and recovery requests
+- **Future Enhancement**: Consider hierarchical identity systems for cryptographic continuity
+
+This limitation is inherent to privacy-preserving identity systems and represents the classic tradeoff between privacy
+and verifiable identity continuity.
+
 ## Integration
 
 ### Smart Contract
 
 ```solidity
-import { SelfPassportSBTV1 } from "./SelfPassportSBTV1.sol";
+import { SelfSBTV2 } from "./SelfSBTV2.sol";
 
 contract MyDApp {
-    SelfPassportSBTV1 public immutable sbtContract;
+    SelfSBTV2 public immutable sbtContract;
 
     modifier requireValidSBT(address user) {
         uint256 tokenId = sbtContract.getTokenIdByAddress(user);
@@ -143,26 +218,53 @@ async function getUserSBT(userAddress) {
 
 ## Deployment
 
-### Environment Setup
+SelfSBTV2 includes a complete deployment pipeline that handles scope generation and contract deployment automatically.
+
+### 🚀 Quick Deployment (GitHub Actions)
+
+The easiest way to deploy is using GitHub Actions:
+
+1. **Go to Actions tab** → **"Deploy SelfSBTV2"**
+2. **Click "Run workflow"** and fill in the parameters:
+   - Network (Celo Mainnet or Alfajores)
+   - Owner Address, Verification Config ID
+   - Scope Seed (identifier from your frontend Self SDK, max 20 chars)
+   - Optional: Custom deployer private key (uses default deployer if not provided)
+3. **Deploy automatically** with scope generation and contract verification
+
+### 🛠️ Local Deployment
 
 ```bash
-# .env file
-IDENTITY_VERIFICATION_HUB_ADDRESS=0x1234567890123456789012345678901234567890
-SCOPE_VALUE=12345
-ATTESTATION_ID_LIST=1,2,3
-OWNER_ADDRESS=0x1234567890123456789012345678901234567890
-VALIDITY_PERIOD=15552000  # 180 days in seconds
+# Copy and configure environment
+cp .env.example .env
+# Edit .env with your values
+
+# Run complete deployment pipeline
+./deploy.sh
 ```
 
-### Deploy Commands
+### ⚙️ Manual Deployment
 
 ```bash
-# Testnet
-forge script script/Deploy.s.sol --rpc-url $SEPOLIA_RPC_URL --private-key $PRIVATE_KEY --broadcast --verify
+# 1. Calculate scope value
+cd ts-scripts && npm install && npm run dev
 
-# Mainnet
-forge script script/Deploy.s.sol --rpc-url $MAINNET_RPC_URL --private-key $PRIVATE_KEY --broadcast --verify --slow
+# 2. Deploy with CREATE2 using calculated scope
+export SCOPE_VALUE="0x..." # Use value from step 1
+forge script script/DeployV2.s.sol:DeployV2 --rpc-url $RPC_URL --broadcast
 ```
+
+### 📋 Required Parameters
+
+- `OWNER_ADDRESS` - Contract owner address
+- `VERIFICATION_CONFIG_ID` - Verification config (bytes32)
+- `SCOPE_SEED` - Scope identifier from your frontend Self SDK
+- For Celo networks, hub addresses and RPC URLs are predefined
+
+### 📖 Detailed Guide
+
+For complete deployment instructions, troubleshooting, and advanced configuration options, see
+**[DEPLOYMENT.md](./DEPLOYMENT.md)**.
 
 ## Security Model
 

@@ -1,12 +1,16 @@
 # SelfSBTV2 Scope Calculator
 
-This directory contains the scope calculator for SelfSBTV2 CREATE2 deployments. It predicts the CREATE2 address and calculates the scope value needed for deployment.
+This directory contains the scope calculator for SelfSBTV2 CREATE2 deployments. It predicts the CREATE2 address and
+calculates the scope value needed for deployment.
 
 ## Overview
 
-The SelfSBTV2 contract requires a `scopeValue` parameter in its constructor, which should be calculated by hashing the contract's address with a user-provided scope seed. However, this creates a circular dependency: you need the address to calculate the scope, but you need the scope to deploy to a predictable address.
+The SelfSBTV2 contract requires a `scopeValue` parameter in its constructor, which should be calculated by hashing the
+contract's address with a user-provided scope seed. However, this creates a circular dependency: you need the address to
+calculate the scope, but you need the scope to deploy to a predictable address.
 
 This is solved by:
+
 1. **TypeScript Calculator**: Predicts the CREATE2 address and calculates the scope value
 2. **Foundry Deployment**: Uses CREATE2 with the same salt for deterministic deployment
 3. Both use the same salt generation logic ensuring the address matches the prediction
@@ -55,6 +59,7 @@ The tools will provide:
 5. **Forge Command** - Complete deployment command
 
 Example output:
+
 ```
 🎉 Final Results:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -79,6 +84,7 @@ forge script script/DeployV2.s.sol:DeployV2 --rpc-url <RPC_URL> --broadcast --ve
 ## Validation
 
 The tools include validation for:
+
 - ✅ Ethereum addresses (proper format and checksum)
 - ✅ Scope seeds (lowercase ASCII, max 20 characters)
 - ✅ Bytes32 values (proper hex format)
@@ -89,11 +95,13 @@ The tools include validation for:
 ### CREATE2 Address Prediction
 
 The tools use the CREATE2 formula:
+
 ```
 address = keccak256(0xff ++ deployer_address ++ salt ++ keccak256(init_code))[12:]
 ```
 
 Where:
+
 - `deployer_address` is the address that will deploy the contract
 - `salt` is a bytes32 value for deterministic deployment
 - `init_code` is the contract bytecode + constructor arguments
@@ -101,29 +109,34 @@ Where:
 ### Scope Calculation
 
 The scope value is calculated using the same logic as the tools repository:
+
 ```javascript
 function hashEndpointWithScope(endpoint, scope) {
-    // Concatenate endpoint (contract address) and scope seed
-    // Create SHA-256 hash
-    // Return as hex string
+  // Concatenate endpoint (contract address) and scope seed
+  // Create SHA-256 hash
+  // Return as hex string
 }
 ```
 
 ### Iterative Refinement
 
-Since the scope value depends on the contract address, and the contract address depends on the scope value, the tools use iterative refinement to converge on the correct values.
+Since the scope value depends on the contract address, and the contract address depends on the scope value, the tools
+use iterative refinement to converge on the correct values.
 
 ## Important Notes
 
-⚠️ **Production Usage**: The current implementation uses placeholder bytecode for demonstration. For production use, you'll need to:
+⚠️ **Production Usage**: The current implementation uses placeholder bytecode for demonstration. For production use,
+you'll need to:
 
 1. Get the actual compiled bytecode of SelfSBTV2
 2. Update the `getInitCodeHash` function with real bytecode
 3. Test on a testnet before mainnet deployment
 
-⚠️ **Parameter Consistency**: The deployment must use the exact same parameters that were used for prediction, or the addresses will not match.
+⚠️ **Parameter Consistency**: The deployment must use the exact same parameters that were used for prediction, or the
+addresses will not match.
 
-⚠️ **CREATE2 vs CREATE**: This only works if you deploy using CREATE2. Standard CREATE deployments have different addresses based on nonce.
+⚠️ **CREATE2 vs CREATE**: This only works if you deploy using CREATE2. Standard CREATE deployments have different
+addresses based on nonce.
 
 ## Integration with Existing Deployment
 
@@ -137,18 +150,23 @@ forge script script/DeployV2.s.sol:DeployV2 --rpc-url $RPC_URL --broadcast
 ## Troubleshooting
 
 ### Address Mismatch
+
 If the predicted address doesn't match the actual deployment:
+
 - Verify all parameters are identical
 - Check that CREATE2 is being used for deployment
 - Ensure the bytecode hash is correct
 
 ### Scope Validation Errors
+
 - Scope seeds must be lowercase ASCII only
 - Maximum 20 characters
 - Allowed characters: `a-z`, `0-9`, spaces, `-`, `_`, `.`, `,`, `!`, `?`
 
 ### Dependencies
+
 If you encounter module errors:
+
 ```bash
 cd ts-scripts
 npm install
@@ -158,7 +176,9 @@ npm run build
 ## Advanced Usage
 
 ### GitHub Actions Integration
-The tools are designed to work seamlessly in CI/CD environments. Set your environment variables in GitHub Actions secrets and run:
+
+The tools are designed to work seamlessly in CI/CD environments. Set your environment variables in GitHub Actions
+secrets and run:
 
 ```yaml
 - name: Predict Contract Address
@@ -176,18 +196,20 @@ The tools are designed to work seamlessly in CI/CD environments. Set your enviro
 ```
 
 ### Library Usage
+
 The functions can also be imported and used programmatically:
 
 ```typescript
-import { hashEndpointWithScope, predictCreate2Address } from './src/deploy-predictor';
+import { hashEndpointWithScope, predictCreate2Address } from "./src/deploy-predictor";
 
-const scopeValue = hashEndpointWithScope('0x123...', 'my-scope');
-const address = predictCreate2Address('0xdeployer...', '0xsalt...', '0xhash...');
+const scopeValue = hashEndpointWithScope("0x123...", "my-scope");
+const address = predictCreate2Address("0xdeployer...", "0xsalt...", "0xhash...");
 ```
 
 ## Contributing
 
 When modifying these tools:
+
 1. Maintain compatibility with the existing ScopeGenerator in the tools repository
 2. Keep validation logic consistent
 3. Test thoroughly on testnets

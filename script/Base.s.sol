@@ -4,7 +4,10 @@ pragma solidity >=0.8.28 <0.9.0;
 import { Script } from "forge-std/Script.sol";
 
 abstract contract BaseScript is Script {
+    // Custom error for validation
+    error InvalidNumericCharacter();
     /// @dev Included to enable compilation of the script without a $MNEMONIC environment variable.
+
     string internal constant TEST_MNEMONIC = "test test test test test test test test test test test junk";
 
     /// @dev Needed for the deterministic deployments.
@@ -67,7 +70,7 @@ abstract contract BaseScript is Script {
             // Skip whitespace
             if (strBytes[i] == 0x20) continue; // space character
 
-            require(strBytes[i] >= 0x30 && strBytes[i] <= 0x39, "Invalid numeric character");
+            if (strBytes[i] < 0x30 || strBytes[i] > 0x39) revert InvalidNumericCharacter();
             result = result * 10 + (uint8(strBytes[i]) - 48); // Convert ASCII to number
         }
 
