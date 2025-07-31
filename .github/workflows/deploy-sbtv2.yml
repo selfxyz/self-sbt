@@ -219,7 +219,7 @@ jobs:
         run: |
           echo "🚀 Deploying SelfSBTV2 contract..."
 
-          # Determine chain identifier for verification
+          # Determine chain name for verification (must match foundry.toml [etherscan] keys)
           case "${{ github.event.inputs.network }}" in
             "celo-mainnet")
               CHAIN_NAME="celo"
@@ -235,7 +235,7 @@ jobs:
           # Add verification if API key is provided
           if [[ -n "$CELOSCAN_API_KEY" ]]; then
             DEPLOY_CMD="$DEPLOY_CMD --verify --chain $CHAIN_NAME --etherscan-api-key $CELOSCAN_API_KEY"
-            echo "📋 Contract verification enabled for chain: $CHAIN_NAME"
+            echo "📋 Contract verification enabled for chain: $CHAIN_NAME (Chain ID: ${{ steps.network-config.outputs.CHAIN_ID }})"
           fi
 
           # Execute deployment
