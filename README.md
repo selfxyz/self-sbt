@@ -232,26 +232,28 @@ The easiest way to deploy is using GitHub Actions:
    - Optional: Custom deployer private key (uses default deployer if not provided)
 3. **Deploy automatically** with scope generation and contract verification
 
-### 🛠️ Local Deployment
-
-```bash
-# Copy and configure environment
-cp .env.example .env
-# Edit .env with your values
-
-# Run complete deployment pipeline
-./deploy.sh
-```
-
-### ⚙️ Manual Deployment
+### 🛠️ Manual Deployment
 
 ```bash
 # 1. Calculate scope value
-cd ts-scripts && npm install && npm run dev
+cd ts-scripts && pnpm install && pnpm run dev
 
-# 2. Deploy with CREATE2 using calculated scope
-export SCOPE_VALUE="0x..." # Use value from step 1
+# 2. Deploy with Foundry using placeholder scope value
+export PLACEHOLDER_SCOPE="0x..." # Use value from step 1
 forge script script/DeployV2.s.sol:DeployV2 --rpc-url $RPC_URL --broadcast
+
+# 3. Set actual scope on deployed contract
+# (Use the contract's setScope function with calculated value)
+```
+
+### ⚙️ Development Testing
+
+```bash
+# Quick test deployment for development
+forge script script/DeployV2.s.sol:DeployV2 --rpc-url $RPC_URL --broadcast
+
+# This uses placeholder scope - suitable for testing only
+# For production, use GitHub Actions workflow
 ```
 
 ### 📋 Required Parameters

@@ -17,7 +17,7 @@ The easiest way to deploy is using GitHub Actions directly from the web interfac
    - **Network**: Choose from Celo Mainnet or Celo Alfajores (testnet)
    - **Owner Address**: Address that will own the deployed contract
    - **Verification Config ID**: bytes32 verification configuration ID
-   - **Scope Seed**: The scope identifier you use in your frontend Self SDK (max 20 chars, lowercase)
+   - **Scope Seed**: The scope identifier you use in your frontend Self SDK (max 25 chars, lowercase)
    - **Custom Deployer Private Key**: Optional custom deployer (uses default deployer if not provided)
    - **Validity Period**: Token validity in seconds (optional, defaults to 180 days)
 
@@ -31,30 +31,7 @@ The workflow will:
 - 📋 Verify the contract (if API key provided)
 - 📊 Create a deployment summary with all details
 
-### Option 2: Local Deployment with Bash Script
-
-For local deployment with full control:
-
-```bash
-# Clone the repository
-git clone https://github.com/selfxyz/self-sbt.git
-cd self-sbt
-
-# Set environment variables
-export DEPLOYER_ADDRESS="0x1234567890123456789012345678901234567890"
-export OWNER_ADDRESS="0x9876543210987654321098765432109876543210"
-export VERIFICATION_CONFIG_ID="0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
-export SCOPE_SEED="production"
-export VALIDITY_PERIOD="15552000"  # Optional, 180 days
-
-# Network is automatically configured (celo-mainnet or celo-alfajores)
-# Hub addresses and RPC URLs are predefined for supported networks
-
-# Run the deployment
-./deploy.sh
-```
-
-### Option 3: Manual Step-by-Step
+### Option 2: Manual Step-by-Step
 
 For development or custom deployments:
 
@@ -323,15 +300,12 @@ foundryup
 
 ### Debug Mode
 
-For detailed debugging, run with verbose output:
+For detailed debugging:
 
 ```bash
-# Local deployment with debug
-DEBUG=1 ./deploy.sh
-
 # TypeScript debug
 cd ts-scripts
-npm run dev 2>&1 | tee debug.log
+pnpm run dev 2>&1 | tee debug.log
 ```
 
 ## 📝 Best Practices
