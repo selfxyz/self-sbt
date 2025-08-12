@@ -15,8 +15,8 @@ forge install && pnpm install
 forge build
 forge test
 
-# Deploy using automated pipeline
-./deploy.sh
+# Deploy using manual pipeline
+# See DEPLOYMENT.md for complete instructions
 ```
 
 ## Privacy-First Architecture
@@ -218,21 +218,11 @@ async function getUserSBT(userAddress) {
 
 ## Deployment
 
-SelfSBTV2 includes a complete deployment pipeline that handles scope generation and contract deployment automatically.
-
-### 🚀 Quick Deployment (GitHub Actions)
-
-The easiest way to deploy is using GitHub Actions:
-
-1. **Go to Actions tab** → **"Deploy SelfSBTV2"**
-2. **Click "Run workflow"** and fill in the parameters:
-   - Network (Celo Mainnet or Alfajores)
-   - Owner Address, Verification Config ID
-   - Scope Seed (identifier from your frontend Self SDK, max 20 chars)
-   - Optional: Custom deployer private key (uses default deployer if not provided)
-3. **Deploy automatically** with scope generation and contract verification
+SelfSBTV2 includes a deployment pipeline that handles scope generation and contract deployment using TypeScript and Foundry.
 
 ### 🛠️ Manual Deployment
+
+Deploy using the TypeScript scope calculator and Foundry:
 
 ```bash
 # 1. Calculate scope value
@@ -288,7 +278,7 @@ forge test --match-test "test_BurnSBT"
 forge test --match-test "test_SetValidityPeriod"
 ```
 
-**Test Coverage**: 15+ tests covering all 4 logic cases, owner functions, and edge cases
+**Test Coverage**: 22 tests covering all 4 logic cases, owner functions, signature verification, and edge cases
 
 ## Error Handling
 

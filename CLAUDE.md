@@ -12,7 +12,7 @@ pnpm install && forge install
 # Build contracts
 forge build
 
-# Run all tests (20 tests, should all pass)
+# Run all tests (22 tests, should all pass)
 forge test
 
 # Run specific test patterns
@@ -36,9 +36,6 @@ pnpm run build              # Compile TypeScript
 
 ### Deployment
 ```bash
-# Quick automated deployment
-./deploy.sh
-
 # Manual deployment steps
 cd ts-scripts && pnpm run calculate-scope  # Get scope value
 forge script script/DeployV2.s.sol:DeployV2 --rpc-url $RPC_URL --broadcast
@@ -58,6 +55,18 @@ This is a **Soulbound Token (SBT)** implementation built on Self Protocol's zero
 - `_nullifierToTokenId`: Permanent binding between ZK nullifiers and token IDs
 - `_userToTokenId`: Maps user addresses to their token (one SBT per user)
 - `_expiryTimestamps`: Token expiration times
+
+### Signature Verification
+The contract requires EIP-712 signed messages from users to prevent relay attacks:
+
+**Signature Structure:**
+- Domain: "Self SBT Verification" (version 1)
+- Message: `VerifyIdentity(address wallet, uint256 timestamp)`
+- Max age: 10 minutes (600 seconds)
+
+**User Context Data Format:**
+- Bytes 0-64: ECDSA signature (65 bytes)
+- Bytes 65-96: Timestamp (32 bytes)
 
 ### Verification Logic Matrix
 The contract handles four distinct scenarios based on nullifier usage and receiver token ownership:
@@ -89,7 +98,7 @@ The contract handles four distinct scenarios based on nullifier usage and receiv
 - Revert testing requires `expectRevert` before the callback that reverts
 
 **Critical Test Files:**
-- `test/SelfSBTV2.t.sol`: All 20 tests covering the verification matrix and owner functions
+- `test/SelfSBTV2.t.sol`: All 22 tests covering the verification matrix and owner functions
 
 ## Development Patterns
 
@@ -105,6 +114,9 @@ When testing verification flows, the Identity Hub is mocked. The real flow is:
 - `InvalidValidityPeriod()`: Zero validity period
 - `TokenDoesNotExist()`: Operating on non-existent token
 - `InvalidReceiver()`: Zero address receiver
+- `InvalidSignature()`: EIP-712 signature doesn't match receiver
+- `SignatureExpired()`: Signature timestamp too old (>10 minutes)
+- `InvalidSignatureData()`: Malformed user context data
 
 ### Owner Functions
 - `burnSBT(tokenId)`: Remove user's token (enables recovery)
@@ -147,7 +159,7 @@ DEPLOYER_ADDRESS          # Address deploying the contract
 IDENTITY_VERIFICATION_HUB_ADDRESS  # Network-specific hub address
 OWNER_ADDRESS            # Contract owner address
 VERIFICATION_CONFIG_ID   # bytes32 verification config
-SCOPE_SEED              # Scope identifier (max 20 chars, lowercase)
+SCOPE_SEED              # Scope identifier
 VALIDITY_PERIOD         # Optional, defaults to 180 days
 ```
 

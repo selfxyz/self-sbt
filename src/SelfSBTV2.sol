@@ -5,6 +5,7 @@ import { SelfVerificationRoot } from "@selfxyz/contracts-v2/contracts/abstract/S
 import { ISelfVerificationRoot } from "@selfxyz/contracts-v2/contracts/interfaces/ISelfVerificationRoot.sol";
 import { IIdentityVerificationHubV2 } from "@selfxyz/contracts-v2/contracts/interfaces/IIdentityVerificationHubV2.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 import { ERC5192 } from "./ERC5192.sol";
 
@@ -14,6 +15,8 @@ import { ERC5192 } from "./ERC5192.sol";
 /// @dev This contract extends SelfVerificationRoot for identity verification, ERC5192 for soulbound functionality,
 ///      and Ownable for administrative controls. Tokens are non-transferable and have expiry timestamps.
 contract SelfSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
+    using ECDSA for bytes32;
+
     /*//////////////////////////////////////////////////////////////
                              STATE VARIABLES
     //////////////////////////////////////////////////////////////*/
@@ -34,6 +37,15 @@ contract SelfSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
 
     /// @notice The verification configuration ID used for identity verification
     bytes32 public verificationConfigId;
+
+    /// @notice Maximum age of a signature in seconds (10 minutes)
+    uint256 public constant MAX_SIGNATURE_AGE = 600;
+
+    /// @notice EIP-712 domain separator
+    bytes32 public immutable DOMAIN_SEPARATOR;
+
+    /// @notice EIP-712 type hash for VerifyIdentity message
+    bytes32 public constant VERIFY_IDENTITY_TYPEHASH = keccak256("VerifyIdentity(address wallet,uint256 timestamp)");
 
     /*//////////////////////////////////////////////////////////////
                                   EVENTS
@@ -77,6 +89,15 @@ contract SelfSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
     /// @notice Thrown when the receiver address is invalid (zero address)
     error InvalidReceiver();
 
+    /// @notice Thrown when the signature doesn't match the receiver
+    error InvalidSignature();
+
+    /// @notice Thrown when the signature timestamp is too old
+    error SignatureExpired();
+
+    /// @notice Thrown when the user context data is malformed
+    error InvalidUserData();
+
     /*//////////////////////////////////////////////////////////////
                               CONSTRUCTOR
     //////////////////////////////////////////////////////////////*/
@@ -109,6 +130,17 @@ contract SelfSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
         validityPeriod = _validityPeriod;
 
         _nextTokenId = 1;
+
+        // Initialize EIP-712 domain separator
+        DOMAIN_SEPARATOR = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(bytes("Self SBT Verification")),
+                keccak256(bytes("1")),
+                block.chainid,
+                address(this)
+            )
+        );
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -123,9 +155,10 @@ contract SelfSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
 
     /// @notice Custom verification hook that can be overridden by implementing contracts
     /// @param genericDiscloseOutput The generic disclose output from the hub
+    /// @param userData The user context data containing the EIP-712 signature
     function customVerificationHook(
         ISelfVerificationRoot.GenericDiscloseOutputV2 memory genericDiscloseOutput,
-        bytes memory
+        bytes memory userData
     )
         internal
         override
@@ -134,6 +167,9 @@ contract SelfSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
         address receiver = address(uint160(genericDiscloseOutput.userIdentifier));
 
         if (receiver == address(0)) revert InvalidReceiver();
+
+        // Verify EIP-712 signature from userData
+        _verifySignature(receiver, userData);
 
         // Check if nullifier has been used
         uint256 nullifierTokenId = _nullifierToTokenId[nullifier];
@@ -278,5 +314,51 @@ contract SelfSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
     /// @return The validity period in seconds
     function getValidityPeriod() external view returns (uint256) {
         return validityPeriod;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                           INTERNAL FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Verifies the EIP-712 signature from userData
+    /// @param expectedSigner The address that should have signed the message
+    /// @param userData The user context data containing the signature payload
+    function _verifySignature(address expectedSigner, bytes memory userData) internal view {
+        // The userData should contain: signature (65 bytes) + timestamp (32 bytes)
+        // Minimum expected length: 65 (signature) + 32 (timestamp) = 97 bytes
+        if (userData.length < 97) revert InvalidUserData();
+
+        // Extract signature (first 65 bytes)
+        bytes memory signature = new bytes(65);
+        for (uint256 i = 0; i < 65; i++) {
+            signature[i] = userData[i];
+        }
+
+        // Extract timestamp (next 32 bytes as uint256)
+        uint256 signatureTimestamp;
+        assembly {
+            // userData points to memory location, first 32 bytes is length
+            // Skip: 32 (length) + 65 (signature) = 97
+            signatureTimestamp := mload(add(userData, 97))
+        }
+
+        // Verify timestamp is within MAX_SIGNATURE_AGE
+        if (block.timestamp > signatureTimestamp + MAX_SIGNATURE_AGE) {
+            revert SignatureExpired();
+        }
+
+        // Reconstruct the EIP-712 struct hash
+        bytes32 structHash = keccak256(abi.encode(VERIFY_IDENTITY_TYPEHASH, expectedSigner, signatureTimestamp));
+
+        // Create the EIP-712 digest
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
+
+        // Recover signer from signature using OpenZeppelin's ECDSA
+        address recoveredSigner = digest.recover(signature);
+
+        // Verify the signature matches the expected signer
+        if (recoveredSigner != expectedSigner) {
+            revert InvalidSignature();
+        }
     }
 }
