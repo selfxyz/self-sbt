@@ -1,52 +1,45 @@
 # SelfSBTV2 Complete Deployment Guide
 
-This guide covers the complete deployment pipeline for SelfSBTV2, which integrates TypeScript scope prediction with
+This guide covers the deployment pipeline for SelfSBTV2, which integrates TypeScript scope prediction with
 Foundry contract deployment.
+
+> **Note**: GitHub Actions deployment workflow is available at `.github/workflows/deploy-sbtv2.yml`. You can also deploy manually using the steps below.
 
 ## 🚀 Quick Start Options
 
-### Option 1: GitHub Actions (Recommended - No Cloning Required)
+### Option 1: GitHub Actions (Recommended)
 
-The easiest way to deploy is using GitHub Actions directly from the web interface:
+Use the automated GitHub Actions workflow:
 
-1. **Navigate to the Actions tab** in the GitHub repository
-2. **Select "Deploy SelfSBTV2"** workflow
-3. **Click "Run workflow"** button
-4. **Fill in the required parameters**:
-
-   - **Network**: Choose from Celo Mainnet or Celo Alfajores (testnet)
-   - **Owner Address**: Address that will own the deployed contract
-   - **Verification Config ID**: bytes32 verification configuration ID
-   - **Scope Seed**: The scope identifier you use in your frontend Self SDK (max 25 chars, lowercase)
-   - **Custom Deployer Private Key**: Optional custom deployer (uses default deployer if not provided)
-   - **Validity Period**: Token validity in seconds (optional, defaults to 180 days)
-
-5. **Click "Run workflow"** to start deployment
-
-The workflow will:
-
-- ✅ Validate all inputs
-- 🔮 Generate scope value and predict contract address
-- 🚀 Deploy the contract using Foundry
-- 📋 Verify the contract (if API key provided)
-- 📊 Create a deployment summary with all details
+1. Go to **Actions** tab in GitHub
+2. Select **"Deploy SelfSBTV2"** workflow
+3. Click **"Run workflow"** and fill in required parameters:
+   - Network (celo-mainnet or celo-alfajores)
+   - Owner address
+   - Verification config ID
+   - Scope seed
 
 ### Option 2: Manual Step-by-Step
 
-For development or custom deployments:
+Deploy using the TypeScript scope calculator and Foundry:
 
 ```bash
-# 1. Install dependencies and generate scope
+# 1. Install dependencies and calculate scope
 cd ts-scripts
-npm install
-npm run dev  # Uses environment variables
+pnpm install
+DEPLOYED_ADDRESS="0x..." SCOPE_SEED="your-app" pnpm run calculate-scope
 
-# 2. Note the generated SCOPE_VALUE from output
-
-# 3. Deploy with Foundry
+# 2. Deploy with Foundry using calculated scope
 cd ..
-export SCOPE_VALUE="0x..." # Use value from step 2
+export IDENTITY_VERIFICATION_HUB_ADDRESS="0x..."
+export SCOPE_VALUE="0x..." # Use value from step 1
+export OWNER_ADDRESS="0x..."
+export VERIFICATION_CONFIG_ID="0x..."
+export VALIDITY_PERIOD="15552000"
 forge script script/DeployV2.s.sol:DeployV2 --rpc-url $RPC_URL --broadcast
+
+# 3. Set actual scope on deployed contract
+cast send $CONTRACT_ADDRESS "setScope(uint256)" $SCOPE_VALUE --rpc-url $RPC_URL --private-key $PRIVATE_KEY
 ```
 
 ## 📋 Parameters
@@ -90,7 +83,7 @@ The **Scope Seed** is a crucial parameter that connects your deployed contract w
 - **What it is**: A unique identifier (string) that you define for your application
 - **Where it's used**: In your frontend Self SDK when initializing verification
 - **Example**: If your app is called "MyDApp", you might use `"mydapp"` as the scope seed
-- **Requirements**: Max 20 characters, lowercase ASCII only (`a-z`, `0-9`, spaces, `-`, `_`, `.`, `,`, `!`, `?`)
+- **Requirements**: String identifier for your application
 
 **Frontend Integration Example:**
 
@@ -111,7 +104,7 @@ The deployment pipeline validates all inputs:
 
 - ✅ **Ethereum Addresses**: Must be valid format (`0x` + 40 hex chars)
 - ✅ **Bytes32 Values**: Must be valid format (`0x` + 64 hex chars)
-- ✅ **Scope Seeds**: Max 20 characters, lowercase ASCII only
+- ✅ **Scope Seeds**: String identifiers for applications
 - ✅ **Numeric Values**: Must be positive integers
 - ✅ **Private Keys**: Automatically derived to addresses (never logged)
 
@@ -243,9 +236,9 @@ forge script script/DeployV2.s.sol:DeployV2 --rpc-url <RPC_URL> --broadcast
 ✅ Deployment verification completed successfully!
 ```
 
-### GitHub Actions Summary
+### Deployment Summary
 
-The workflow creates a detailed summary including:
+Manual deployments should track:
 
 - 📋 All deployment parameters
 - 🎯 Predicted vs actual addresses
@@ -267,10 +260,10 @@ The workflow creates a detailed summary including:
 **Invalid Scope Seed**
 
 ```
-❌ Scope must contain only lowercase ASCII characters
+❌ Invalid scope seed provided
 ```
 
-**Solution**: Use only `a-z`, `0-9`, spaces, `-`, `_`, `.`, `,`, `!`, `?`
+**Solution**: Ensure scope seed is a valid string identifier
 
 **Missing Dependencies**
 
@@ -319,7 +312,7 @@ pnpm run dev 2>&1 | tee debug.log
 
 ### Production Deployment
 
-1. **Use GitHub Actions** for reproducibility
+1. **Use consistent deployment scripts** for reproducibility
 2. **Enable contract verification** with API keys
 3. **Double-check all parameters** before deployment
 4. **Monitor deployment transactions** on block explorers
@@ -341,7 +334,7 @@ pnpm run dev 2>&1 | tee debug.log
 
 - **TypeScript Scripts**: Update in `ts-scripts/src/`
 - **Foundry Scripts**: Update in `script/`
-- **GitHub Workflows**: Update in `.github/workflows/`
+- **GitHub Workflows**: Update in `.github/workflows/deploy-sbtv2.yml`
 - **Documentation**: Keep this file updated
 
 ### Version Control
@@ -365,7 +358,7 @@ When modifying the deployment pipeline:
 For deployment issues:
 
 1. Check the troubleshooting section above
-2. Review GitHub Actions workflow logs
+2. Review deployment logs and error messages
 3. Verify all parameters and network connectivity
 4. Test on testnets before mainnet deployment
 
