@@ -524,7 +524,8 @@ contract SelfSBTV2Test is Test {
         bytes memory signature = abi.encodePacked(r, s, v);
 
         // But claim the signature is for user2
-        bytes memory userContextData = abi.encodePacked(signature, bytes32(timestamp));
+        bytes memory rawData = abi.encodePacked(signature, bytes32(timestamp));
+        bytes memory userContextData = _bytesToAsciiHex(rawData);
 
         vm.prank(relayer);
         sbtContract.verifySelfProof(proofPayload, userContextData);
@@ -578,7 +579,8 @@ contract SelfSBTV2Test is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(SIGNER_PRIVATE_KEY, digest);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        bytes memory userContextData = abi.encodePacked(signature, bytes32(oldTimestamp));
+        bytes memory rawData = abi.encodePacked(signature, bytes32(oldTimestamp));
+        bytes memory userContextData = _bytesToAsciiHex(rawData);
 
         vm.prank(relayer);
         sbtContract.verifySelfProof(proofPayload, userContextData);
@@ -681,6 +683,38 @@ contract SelfSBTV2Test is Test {
         );
     }
 
+    /// @notice Converts a single byte to ASCII hex characters
+    /// @param b The byte to convert
+    /// @return c1 First hex character
+    /// @return c2 Second hex character
+    function _byteToHexChars(uint8 b) internal pure returns (bytes1 c1, bytes1 c2) {
+        uint8 high = b >> 4;
+        uint8 low = b & 0x0f;
+
+        c1 = high < 10 ? bytes1(0x30 + high) : bytes1(0x61 + high - 10); // 0-9 or a-f
+        c2 = low < 10 ? bytes1(0x30 + low) : bytes1(0x61 + low - 10); // 0-9 or a-f
+    }
+
+    /// @notice Converts bytes to ASCII hex string with "0x" prefix
+    /// @param data The bytes to convert
+    /// @return ASCII hex string
+    function _bytesToAsciiHex(bytes memory data) internal pure returns (bytes memory) {
+        bytes memory result = new bytes(2 + data.length * 2); // "0x" + 2 chars per byte
+
+        // Add "0x" prefix
+        result[0] = 0x30; // '0'
+        result[1] = 0x78; // 'x'
+
+        // Convert each byte to two hex characters
+        for (uint256 i = 0; i < data.length; i++) {
+            (bytes1 c1, bytes1 c2) = _byteToHexChars(uint8(data[i]));
+            result[2 + i * 2] = c1;
+            result[2 + i * 2 + 1] = c2;
+        }
+
+        return result;
+    }
+
     function _prepareForVerifySelfProofWithNullifier(
         address userAddress,
         uint256 nullifier
@@ -728,7 +762,8 @@ contract SelfSBTV2Test is Test {
         bytes memory signature = abi.encodePacked(r, s, v);
 
         // Pack the user context data with signature and timestamp
-        // Format: signature (65 bytes) + timestamp (32 bytes)
-        userContextData = abi.encodePacked(signature, bytes32(timestamp));
+        // Format: ASCII hex string of signature (65 bytes) + timestamp (32 bytes)
+        bytes memory rawData = abi.encodePacked(signature, bytes32(timestamp));
+        userContextData = _bytesToAsciiHex(rawData);
     }
 }

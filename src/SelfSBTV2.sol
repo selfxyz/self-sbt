@@ -320,26 +320,68 @@ contract SelfSBTV2 is SelfVerificationRoot, ERC5192, Ownable {
                            INTERNAL FUNCTIONS
     //////////////////////////////////////////////////////////////*/
 
+    /// @notice Converts ASCII hex character to byte value
+    /// @param char The ASCII hex character (0-9, a-f, A-F)
+    /// @return The byte value (0-15)
+    function _hexCharToByte(bytes1 char) internal pure returns (uint8) {
+        uint8 c = uint8(char);
+        if (c >= 0x30 && c <= 0x39) return c - 0x30; // 0-9
+        if (c >= 0x61 && c <= 0x66) return c - 0x61 + 10; // a-f
+        if (c >= 0x41 && c <= 0x46) return c - 0x41 + 10; // A-F
+        revert InvalidUserData();
+    }
+
+    /// @notice Converts ASCII hex string to bytes
+    /// @param asciiHex The ASCII hex string starting with "0x"
+    /// @return The decoded bytes
+    function _asciiHexToBytes(bytes memory asciiHex) internal pure returns (bytes memory) {
+        // Check for "0x" prefix (ASCII: 0x3078)
+        if (asciiHex.length < 2 || asciiHex[0] != 0x30 || asciiHex[1] != 0x78) {
+            revert InvalidUserData();
+        }
+
+        // Calculate result length (excluding "0x" prefix)
+        uint256 hexLength = asciiHex.length - 2;
+        if (hexLength % 2 != 0) revert InvalidUserData(); // Must be even number of hex chars
+
+        uint256 resultLength = hexLength / 2;
+        bytes memory result = new bytes(resultLength);
+
+        // Convert pairs of ASCII hex chars to bytes
+        for (uint256 i = 0; i < resultLength; i++) {
+            uint256 asciiIdx = 2 + i * 2; // Skip "0x" prefix
+            result[i] = bytes1((_hexCharToByte(asciiHex[asciiIdx]) << 4) | _hexCharToByte(asciiHex[asciiIdx + 1]));
+        }
+
+        return result;
+    }
+
     /// @notice Verifies the EIP-712 signature from userData
     /// @param expectedSigner The address that should have signed the message
-    /// @param userData The user context data containing the signature payload
+    /// @param userData The user context data containing ASCII-encoded signature payload
     function _verifySignature(address expectedSigner, bytes memory userData) internal view {
-        // The userData should contain: signature (65 bytes) + timestamp (32 bytes)
-        // Minimum expected length: 65 (signature) + 32 (timestamp) = 97 bytes
-        if (userData.length < 97) revert InvalidUserData();
+        // userData contains ASCII-encoded hex string: "0x" + hex(signature + timestamp)
+        // Minimum length: "0x" (2 chars) + signature (130 chars) + timestamp (64 chars) = 196 chars
+        if (userData.length < 196) revert InvalidUserData();
+
+        // Decode ASCII hex string to bytes
+        bytes memory decodedData = _asciiHexToBytes(userData);
+
+        // decodedData should contain: signature (65 bytes) + timestamp (32 bytes) = 97 bytes
+        if (decodedData.length < 97) revert InvalidUserData();
 
         // Extract signature (first 65 bytes)
         bytes memory signature = new bytes(65);
         for (uint256 i = 0; i < 65; i++) {
-            signature[i] = userData[i];
+            signature[i] = decodedData[i];
         }
 
         // Extract timestamp (next 32 bytes as uint256)
         uint256 signatureTimestamp;
         assembly {
-            // userData points to memory location, first 32 bytes is length
+            // decodedData points to memory location, first 32 bytes is length
             // Skip: 32 (length) + 65 (signature) = 97
-            signatureTimestamp := mload(add(userData, 97))
+            signatureTimestamp := mload(add(decodedData, 97))
         }
 
         // Verify timestamp is within MAX_SIGNATURE_AGE
