@@ -1,0 +1,438 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.28;
+
+import { SelfVerificationRoot } from "@selfxyz/contracts-v2/contracts/abstract/SelfVerificationRoot.sol";
+import { ISelfVerificationRoot } from "@selfxyz/contracts-v2/contracts/interfaces/ISelfVerificationRoot.sol";
+import { IIdentityVerificationHubV2 } from "@selfxyz/contracts-v2/contracts/interfaces/IIdentityVerificationHubV2.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+
+import { ERC5192 } from "./ERC5192.sol";
+
+/// @title EspressoSelfSBT
+/// @author Self Protocol
+/// @notice A Soulbound Token (SBT) implementation for Espresso brand with Ethereum address tracking for airdrops
+/// @dev This contract extends SelfVerificationRoot for identity verification, ERC5192 for soulbound functionality,
+///      and Ownable for administrative controls. Tokens are non-transferable and have expiry timestamps.
+///      Additionally tracks Ethereum addresses for airdrop distribution.
+contract EspressoSelfSBT is SelfVerificationRoot, ERC5192, Ownable {
+    using ECDSA for bytes32;
+
+    /*//////////////////////////////////////////////////////////////
+                             STATE VARIABLES
+    //////////////////////////////////////////////////////////////*/
+    /// @dev Maps nullifiers to their corresponding token IDs for verification tracking
+    mapping(uint256 nullifier => uint256 tokenId) internal _nullifierToTokenId;
+
+    /// @dev Maps user addresses to their token IDs (one SBT per user)
+    mapping(address user => uint256 tokenId) internal _userToTokenId;
+
+    /// @dev Maps token IDs to their expiry timestamps
+    mapping(uint256 tokenId => uint256 expiryTimestamp) internal _expiryTimestamps;
+
+    /// @dev Counter for generating unique token IDs
+    uint64 internal _nextTokenId;
+
+    /// @notice The validity period in seconds for newly minted tokens
+    uint256 public validityPeriod;
+
+    /// @notice The verification configuration ID used for identity verification
+    bytes32 public verificationConfigId;
+
+    /// @notice Maximum age of a signature in seconds (10 minutes)
+    uint256 public constant MAX_SIGNATURE_AGE = 600;
+
+    /// @notice EIP-712 domain separator
+    bytes32 public immutable DOMAIN_SEPARATOR;
+
+    /// @notice EIP-712 type hash for VerifyIdentity message with ethereumAddress
+    bytes32 public constant VERIFY_IDENTITY_TYPEHASH = keccak256("VerifyIdentity(address wallet,uint256 timestamp,address ethereumAddress)");
+
+    /*//////////////////////////////////////////////////////////////
+                                  EVENTS
+    //////////////////////////////////////////////////////////////*/
+    /// @notice Emitted when a new SBT is minted
+    /// @param to The address receiving the SBT
+    /// @param tokenId The unique identifier of the minted token
+    /// @param expiryTimestamp The timestamp when the token expires
+    event SBTMinted(address indexed to, uint256 indexed tokenId, uint256 indexed expiryTimestamp);
+
+    /// @notice Emitted when an existing SBT's expiry is updated
+    /// @param tokenId The unique identifier of the updated token
+    /// @param newExpiryTimestamp The new expiry timestamp
+    event SBTUpdated(uint256 indexed tokenId, uint256 indexed newExpiryTimestamp);
+
+    /// @notice Emitted when an SBT is burned by the owner
+    /// @param tokenId The unique identifier of the burned token
+    /// @param user The address that owned the burned token
+    event SBTBurned(uint256 indexed tokenId, address indexed user);
+
+    /// @notice Emitted when the validity period is updated by the owner
+    /// @param oldPeriod The previous validity period in seconds
+    /// @param newPeriod The new validity period in seconds
+    event ValidityPeriodUpdated(uint256 oldPeriod, uint256 newPeriod);
+
+    /// @notice Emitted when a verification is completed successfully
+    /// @param celoAddress The Celo address that received the SBT
+    /// @param nullifier The nullifier used in the verification
+    /// @param ethereumAddress The Ethereum address for airdrop distribution
+    /// @param timestamp The timestamp of the verification
+    event VerificationCompleted(
+        address indexed celoAddress,
+        uint256 indexed nullifier,
+        address indexed ethereumAddress,
+        uint256 timestamp
+    );
+
+    /*//////////////////////////////////////////////////////////////
+                                  ERRORS
+    //////////////////////////////////////////////////////////////*/
+    /// @notice Thrown when the specified verification configuration ID does not exist in the hub
+    error VerificationConfigDoesNotExist();
+
+    /// @notice Thrown when attempting to use a nullifier that has already been registered
+    error RegisteredNullifier();
+
+    /// @notice Thrown when setting an invalid validity period (zero or negative)
+    error InvalidValidityPeriod();
+
+    /// @notice Thrown when attempting to operate on a token that does not exist
+    error TokenDoesNotExist();
+
+    /// @notice Thrown when the receiver address is invalid (zero address)
+    error InvalidReceiver();
+
+    /// @notice Thrown when the signature doesn't match the receiver
+    error InvalidSignature();
+
+    /// @notice Thrown when the signature timestamp is too old
+    error SignatureExpired();
+
+    /// @notice Thrown when the user context data is malformed
+    error InvalidUserData();
+
+    /// @notice Thrown when the ethereum address is invalid (zero address)
+    error InvalidEthereumAddress();
+
+    /*//////////////////////////////////////////////////////////////
+                              CONSTRUCTOR
+    //////////////////////////////////////////////////////////////*/
+    /// @notice Constructs the EspressoSelfSBT contract
+    /// @param _identityVerificationHubAddress The address of the Self Protocol verification hub
+    /// @param _scopeValue The scope value for the endpoint
+    /// @param _owner The address that will own this contract and have administrative privileges
+    /// @param _validityPeriod The validity period in seconds for newly minted tokens (must be > 0)
+    /// @param _verificationConfigId The verification configuration ID to use for identity verification
+    /// @dev Initializes the contract with soulbound token functionality (locked = true)
+    /// @dev Validates that the verification config exists in the hub before deployment
+    constructor(
+        address _identityVerificationHubAddress,
+        uint256 _scopeValue,
+        address _owner,
+        uint256 _validityPeriod,
+        bytes32 _verificationConfigId
+    )
+        SelfVerificationRoot(_identityVerificationHubAddress, _scopeValue)
+        ERC5192("EspressoSelfSBT", "ESPRESSOSELFSBT", true)
+        Ownable(_owner)
+    {
+        IIdentityVerificationHubV2 hub = IIdentityVerificationHubV2(_identityVerificationHubAddress);
+        if (!hub.verificationConfigV2Exists(_verificationConfigId)) {
+            revert VerificationConfigDoesNotExist();
+        }
+        verificationConfigId = _verificationConfigId;
+
+        if (_validityPeriod == 0) revert InvalidValidityPeriod();
+        validityPeriod = _validityPeriod;
+
+        _nextTokenId = 1;
+
+        // Initialize EIP-712 domain separator
+        DOMAIN_SEPARATOR = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(bytes("Self SBT Verification")),
+                keccak256(bytes("1")),
+                block.chainid,
+                address(this)
+            )
+        );
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                             FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Returns the verification configuration ID for this contract
+    /// @dev Overrides SelfVerificationRoot to provide a fixed config ID for all verifications
+    function getConfigId(bytes32, bytes32, bytes memory) public view override returns (bytes32) {
+        return verificationConfigId;
+    }
+
+    /// @notice Custom verification hook for Espresso brand with Ethereum address tracking
+    /// @param genericDiscloseOutput The generic disclose output from the hub
+    /// @param userData The user context data containing the EIP-712 signature with ethereumAddress
+    function customVerificationHook(
+        ISelfVerificationRoot.GenericDiscloseOutputV2 memory genericDiscloseOutput,
+        bytes memory userData
+    )
+        internal
+        override
+    {
+        uint256 nullifier = genericDiscloseOutput.nullifier;
+        address receiver = address(uint160(genericDiscloseOutput.userIdentifier));
+
+        if (receiver == address(0)) revert InvalidReceiver();
+
+        // Verify EIP-712 signature from userData and extract ethereumAddress
+        address ethereumAddress = _verifySignature(receiver, userData);
+
+        // Check if nullifier has been used
+        uint256 nullifierTokenId = _nullifierToTokenId[nullifier];
+        bool nullifierIsUsed = nullifierTokenId != 0;
+
+        // Check if receiver has SBT
+        uint256 receiverTokenId = _userToTokenId[receiver];
+        bool receiverHasSBT = receiverTokenId != 0;
+
+        if (!nullifierIsUsed && !receiverHasSBT) {
+            // Case 1: Nullifier NEW + Receiver NO SBT → mint
+            uint256 newExpiryTimestamp = block.timestamp + validityPeriod;
+            uint64 newTokenId = _nextTokenId++;
+
+            // Mint token and set expiry
+            _mint(receiver, newTokenId);
+            _expiryTimestamps[newTokenId] = newExpiryTimestamp;
+
+            // Update mappings
+            _nullifierToTokenId[nullifier] = newTokenId;
+            _userToTokenId[receiver] = newTokenId;
+
+            emit SBTMinted(receiver, newTokenId, newExpiryTimestamp);
+        } else if (!nullifierIsUsed && receiverHasSBT) {
+            // Case 2: Nullifier NEW + Receiver HAS SBT → update (no owner check needed)
+            uint256 newExpiryTimestamp = block.timestamp + validityPeriod;
+
+            // Update existing token's expiry
+            _expiryTimestamps[receiverTokenId] = newExpiryTimestamp;
+
+            // Map this new nullifier to the existing token
+            _nullifierToTokenId[nullifier] = receiverTokenId;
+
+            emit SBTUpdated(receiverTokenId, newExpiryTimestamp);
+        } else if (nullifierIsUsed && !receiverHasSBT) {
+            // Case 3: Nullifier USED + Receiver NO SBT → recover burned token or revert
+            address currentOwner = _ownerOf(nullifierTokenId);
+
+            if (currentOwner == address(0)) {
+                // Token was burned by admin, recover to new address with same token ID
+                uint256 newExpiryTimestamp = block.timestamp + validityPeriod;
+
+                _mint(receiver, nullifierTokenId);
+                _expiryTimestamps[nullifierTokenId] = newExpiryTimestamp;
+                _userToTokenId[receiver] = nullifierTokenId;
+
+                emit SBTMinted(receiver, nullifierTokenId, newExpiryTimestamp);
+            } else {
+                // Token still active, user must ask admin to burn first
+                revert RegisteredNullifier();
+            }
+        } else {
+            // Case 4: Nullifier USED + Receiver HAS SBT → check owner match
+            address nullifierOwner = _ownerOf(nullifierTokenId);
+
+            if (nullifierOwner != receiver) {
+                // Owner mismatch → revert
+                revert RegisteredNullifier();
+            }
+
+            // Owner matches → update expiry
+            uint256 newExpiryTimestamp = block.timestamp + validityPeriod;
+            _expiryTimestamps[receiverTokenId] = newExpiryTimestamp;
+
+            emit SBTUpdated(receiverTokenId, newExpiryTimestamp);
+        }
+
+        // Emit verification completed event for indexer
+        emit VerificationCompleted(receiver, nullifier, ethereumAddress, block.timestamp);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                             OWNER FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Burn a user's SBT token (preserves nullifier mapping for recovery)
+    /// @param tokenId The token ID to burn
+    /// @dev This function can only be called by the owner. Nullifier mapping is preserved for token recovery.
+    function burnSBT(uint256 tokenId) external onlyOwner {
+        address tokenOwner = _ownerOf(tokenId);
+        if (tokenOwner == address(0)) revert TokenDoesNotExist();
+
+        // Clean up user and expiry mappings (nullifier mapping preserved for recovery)
+        _userToTokenId[tokenOwner] = 0;
+        delete _expiryTimestamps[tokenId];
+
+        _burn(tokenId);
+        emit SBTBurned(tokenId, tokenOwner);
+    }
+
+    /// @notice Update the validity period for new tokens
+    /// @param _newValidityPeriod The new validity period in seconds
+    /// @dev This function can only be called by the owner
+    function setValidityPeriod(uint256 _newValidityPeriod) external onlyOwner {
+        if (_newValidityPeriod == 0) revert InvalidValidityPeriod();
+
+        uint256 oldPeriod = validityPeriod;
+        validityPeriod = _newValidityPeriod;
+
+        emit ValidityPeriodUpdated(oldPeriod, _newValidityPeriod);
+    }
+
+    /// @notice Update the scope value for the endpoint
+    /// @param _newScopeValue The new scope value
+    /// @dev This function can only be called by the owner
+    function setScope(uint256 _newScopeValue) external onlyOwner {
+        _setScope(_newScopeValue);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                             VIEW FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Check if a token is still valid (not expired)
+    /// @param tokenId The token ID to check
+    /// @return valid True if token exists and hasn't expired
+    function isTokenValid(uint256 tokenId) external view returns (bool valid) {
+        if (_ownerOf(tokenId) == address(0)) return false; // Token doesn't exist
+        return block.timestamp <= _expiryTimestamps[tokenId];
+    }
+
+    /// @notice Get token expiry timestamp
+    /// @param tokenId The token ID to check
+    /// @return expiryTimestamp The expiry timestamp
+    function getTokenExpiry(uint256 tokenId) external view returns (uint256 expiryTimestamp) {
+        _requireOwned(tokenId);
+        return _expiryTimestamps[tokenId];
+    }
+
+    /// @notice Check if a nullifier has been used
+    /// @param nullifier The nullifier to check
+    /// @return used True if nullifier has been used
+    function isNullifierUsed(uint256 nullifier) external view returns (bool used) {
+        return _nullifierToTokenId[nullifier] != 0;
+    }
+
+    /// @notice Get token ID for a user
+    /// @param user The user to check
+    /// @return tokenId The token ID (0 if user has no token)
+    function getTokenIdByAddress(address user) external view returns (uint256 tokenId) {
+        return _userToTokenId[user];
+    }
+
+    /// @notice Get the current validity period
+    /// @return The validity period in seconds
+    function getValidityPeriod() external view returns (uint256) {
+        return validityPeriod;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                           INTERNAL FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+
+    /// @notice Converts ASCII hex character to byte value
+    /// @param char The ASCII hex character (0-9, a-f, A-F)
+    /// @return The byte value (0-15)
+    function _hexCharToByte(bytes1 char) internal pure returns (uint8) {
+        uint8 c = uint8(char);
+        if (c >= 0x30 && c <= 0x39) return c - 0x30; // 0-9
+        if (c >= 0x61 && c <= 0x66) return c - 0x61 + 10; // a-f
+        if (c >= 0x41 && c <= 0x46) return c - 0x41 + 10; // A-F
+        revert InvalidUserData();
+    }
+
+    /// @notice Converts ASCII hex string to bytes
+    /// @param asciiHex The ASCII hex string starting with "0x"
+    /// @return The decoded bytes
+    function _asciiHexToBytes(bytes memory asciiHex) internal pure returns (bytes memory) {
+        // Check for "0x" prefix (ASCII: 0x3078)
+        if (asciiHex.length < 2 || asciiHex[0] != 0x30 || asciiHex[1] != 0x78) {
+            revert InvalidUserData();
+        }
+
+        // Calculate result length (excluding "0x" prefix)
+        uint256 hexLength = asciiHex.length - 2;
+        if (hexLength % 2 != 0) revert InvalidUserData(); // Must be even number of hex chars
+
+        uint256 resultLength = hexLength / 2;
+        bytes memory result = new bytes(resultLength);
+
+        // Convert pairs of ASCII hex chars to bytes
+        for (uint256 i = 0; i < resultLength; i++) {
+            uint256 asciiIdx = 2 + i * 2; // Skip "0x" prefix
+            result[i] = bytes1((_hexCharToByte(asciiHex[asciiIdx]) << 4) | _hexCharToByte(asciiHex[asciiIdx + 1]));
+        }
+
+        return result;
+    }
+
+    /// @notice Verifies the EIP-712 signature from userData and extracts ethereumAddress
+    /// @param expectedSigner The address that should have signed the message
+    /// @param userData The user context data containing ASCII-encoded signature payload
+    /// @return ethereumAddress The extracted Ethereum address for airdrop
+    function _verifySignature(address expectedSigner, bytes memory userData) internal view returns (address ethereumAddress) {
+        // userData contains ASCII-encoded hex string: "0x" + hex(signature + timestamp + ethereumAddress)
+        // Minimum length: "0x" (2 chars) + signature (130 chars) + timestamp (64 chars) + ethereumAddress (40 chars) = 236 chars
+        if (userData.length < 236) revert InvalidUserData();
+
+        // Decode ASCII hex string to bytes
+        bytes memory decodedData = _asciiHexToBytes(userData);
+
+        // decodedData should contain: signature (65 bytes) + timestamp (32 bytes) + ethereumAddress (20 bytes) = 117 bytes
+        if (decodedData.length < 117) revert InvalidUserData();
+
+        // Extract signature (first 65 bytes)
+        bytes memory signature = new bytes(65);
+        for (uint256 i = 0; i < 65; i++) {
+            signature[i] = decodedData[i];
+        }
+
+        // Extract timestamp (next 32 bytes as uint256)
+        uint256 signatureTimestamp;
+        assembly {
+            // decodedData points to memory location, first 32 bytes is length
+            // Skip: 32 (length) + 65 (signature) = 97
+            signatureTimestamp := mload(add(decodedData, 97))
+        }
+
+        // Extract ethereumAddress (last 20 bytes as address)
+        assembly {
+            // Skip: 32 (length) + 65 (signature) + 32 (timestamp) = 129
+            // Load 32 bytes and shift right 96 bits (12 bytes) to get the address (20 bytes)
+            ethereumAddress := shr(96, mload(add(decodedData, 129)))
+        }
+
+        // Validate ethereumAddress is not zero address
+        if (ethereumAddress == address(0)) revert InvalidEthereumAddress();
+
+        // Verify timestamp is within MAX_SIGNATURE_AGE
+        if (block.timestamp > signatureTimestamp + MAX_SIGNATURE_AGE) {
+            revert SignatureExpired();
+        }
+
+        // Reconstruct the EIP-712 struct hash with ethereumAddress
+        bytes32 structHash = keccak256(abi.encode(VERIFY_IDENTITY_TYPEHASH, expectedSigner, signatureTimestamp, ethereumAddress));
+
+        // Create the EIP-712 digest
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
+
+        // Recover signer from signature using OpenZeppelin's ECDSA
+        address recoveredSigner = digest.recover(signature);
+
+        // Verify the signature matches the expected signer
+        if (recoveredSigner != expectedSigner) {
+            revert InvalidSignature();
+        }
+
+        return ethereumAddress;
+    }
+}
