@@ -1,0 +1,11 @@
+{
+  "lib/forge-std": {
+    "branch": {
+      "name": "\"v1\"",
+      "rev": "77041d2ce690e692d6e03cc812b57d1ddaa4d505"
+    }
+  },
+  "lib/openzeppelin-contracts": {
+    "rev": "932fddf69a699a9a80fd2396fd1a2ab91cdda123"
+  }
+}
