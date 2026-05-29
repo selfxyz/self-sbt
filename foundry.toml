@@ -4,7 +4,6 @@
   auto_detect_solc = false
   block_timestamp = 1_735_702_400 # January 1, 2025 at 00:00 GMT
   bytecode_hash = "none"
-  evm_version = "paris"           # See https://www.evmdiff.com/features?name=PUSH0&kind=opcode
   fuzz = { runs = 1_000 }
   gas_reports = ["*"]
   libs = ["lib"]
