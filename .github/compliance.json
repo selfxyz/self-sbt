@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "workspaces": [
+    {
+      "path": ".",
+      "kind": "contracts"
+    },
+    {
+      "path": "ts-scripts",
+      "kind": "tooling"
+    }
+  ]
+}
