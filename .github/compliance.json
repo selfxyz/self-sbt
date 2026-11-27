@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "mode": "block",
+  "workspaces": [
+    {
+      "path": ".",
+      "kind": "contracts"
+    },
+    {
+      "path": "ts-scripts",
+      "kind": "tooling"
+    }
+  ]
+}
